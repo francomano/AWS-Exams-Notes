@@ -1,0 +1,1052 @@
+---------- AWS ML Engineer Associate -----------
+
+######## Data Ingestion and Storage ########
+
+- structured data: organized in defined schema (RELATIONAL DB, ...)
+	rows and colums
+	queryable
+	you know data types
+- unstructured data: need preprocessing to be queryable
+	text files, videos, images, emails, documents
+-semi structured: not organized but they have tags, hierarchies or patterns
+	json
+	xml
+	headers
+	log files
+	the strucuture may not be consisent throughout the document
+
+
+PROPERTIES OF DATA (VVV)
+
+volume, velocity, variety
+
+- volume: in relation to that, you decide how to store and process
+- velocity: speed at which new data is produced, collected and stored (e.g. real-time needings,...)
+- variety refers to structure,data type and sources (ed medical environment could be more than one source)
+
+Data Warehouses -> SCHEMA ON WRITE
+$$
+extract -> transform -> load (ETL)
+data from different sources organized in structured format
+	for complex querys and analysys
+	ETL processing to data
+	star/snowflakes schema
+	READ-HEAVY
+	Redshift, BigQuery, Azure SQL DW
+	business intelligence and analytics
+
+Data Lakes -> SCHEMA ON READ
+less expensive usually
+extract -> load -> transform (ELT)
+	vas amount of data in raw format
+	e.g. S3 -> AWS Glue -> Athena
+	more agile
+	machine learning, data discovery or advanced analytics
+
+Data Lakehouse
+Hybrid architecture e.g. AWS Lake Formation (with S3 and redshift spectrum, databricks lakehouse platform...)
+
+- Data Mesh -> it's a high level concept, not tecnical
+individual team own data products within a given domain (decentralized approach)
+
+ETL pipelines
+	Extract: retrieve raw data, ensure integrity
+		can be done real-time, in batches, depends on the requirements
+	Transform: convert in a suitable format
+		removing duplicates, add info, date formatting, change strings, aggregations, encoding, handling missing values,...
+	Load: batches or streaming
+
+How to manages these pipelines with automated process AWS Glue
+and orchestration services:
+eventbridge
+amazon MWAA
+step functions
+lambda
+glue workflows
+
+- DATA SOURCES
+JDBC (java db connection)
+	platform independent
+	language dependent -> good if your extraction program is in java
+	otherwise:
+ODBC (Open db connectivity)
+	platform dependent (thanks to drivers)
+	language independent
+RAW LOGS
+API's
+STREAMS (kinesis...)
+
+Avro -> data format useful for big data and real-time processing systems
+binary format that stores both data and its schema 
+(apache systems)
+
+parquet -> column optimitation for analytics
+(redshift spectrum)
+
+- for data streams: Kafka (Amazon MSK) vs Kinesis
+	MSK is fully managed
+	cluster is multi-az
+	automatic recovery
+	data stored in EBS volumes
+	YOU CAN SEND MESSAGES LARGER THAN 1MB (HARD LIMIT OF KINESIS)
+	PRIVATE CLUSTER (IN YOUR VPC)
+	by default TLS encryption in flight
+	auth and authorization: who can read/write on topics:
+		mutual TLS (use TLS certificates for authentication and Kafka ACLs for authz)
+		SASL (username and psw for auth and ACLs for authz)
+		IAM
+	you can monitor with cloudwatch metric or prometheus
+	There exists MSK serverless
+
+---> Because Amazon MSK is the right choice only if you specifically need Kafka (existing Kafka producers/consumers, Kafka APIs, Kafka ecosystem, migration/compatibility requirements). Otherwise, for a new AWS-native real-time fraud pipeline with least operational overhead, Kinesis Data Streams + Managed Service for Apache Flink is usually preferred.
+
+########## Data transformation, Integrity and Feature Engineering ###########
+
+Elastic Map Reduce (EMR)
+managed handoop framework on EC2
+large dataset to normalize, scale ecc... -> distribute the process across an entire cluster
+EMR cluster: master node + core nodes + task nodes (ec2 instances)
+task do not host data -> spot instances are good
+core host data -> risk when scales
+you can use AWS data pipeline to schedule the start of the cluster
+EMR Storage could be:
+	HDFS optimized such as data is in the same node that is processing it (all local)
+	BUT IF CLUSTER IS SHUTTED DOWN, DATA IS LOST
+	-> EMRFS access S3 as if it were HDFS
+
+EMR serverless (just choose release and runtime) and submit queries via job
+ONE REGION MULTI AZ
+YOU HAVE STILL TO STOP YOUR APPLICATION, OTHERWISE YOU CAN BE BILLED FOR THAT
+if you use spark and you want to setup pre-initialized capacity, remember it adds 10% overhead to memory requested for drivers and executors -> add 10% more
+
+EMR on EKS -> fully managed solution(also monit and loggin) and you can share resources between spark and other application very efficiently
+
+- Apache SPARK
+Hadoop is an open-source framework for storing and processing massive datasets across clusters of commodity computers, enabling scalable, fault-tolerant big data analytics by distributing tasks and data, handling structured, semi-structured, and unstructured data for better decision-making. It uses the Hadoop Distributed File System (HDFS) for storage and parallel processing frameworks like MapReduce (historically) and YARN for computation, allowing businesses to analyze vast amounts of information cost-effectively.
+
+MapReduce
+YARN
+HDFS
+
+mapping function -> transform your data and store intermediate results
+reduce function -> take these intermediate data and aggregate them + distilling it down to a final answer
+
+spark is an open source and faster framework that does the same stuff as mapreduce
+(in mem caching, optimized queries with directed aciclic graphs)
+spark has APIs for java, python, R, scala
+in general NOT used for OLTP
+
+How it works?
+
+driver program (spark context) (code) -> connect to different Cluster Manager
+												|
+												allocate resources across applications
+												|
+												executors (compute and store data)
+
+the driver program send the code to the executors
+spark has different components: streaming, SQL, MLLib, GraphX
+MLLib offers several ml algorithms like logistic regression, naive bayes, regression, decision trees, svd, pca, clustering(k-means)...
+SO YOU CAN TRAIN A ML MODEL ACROSS AN ENTIRE CLUSTER AND YOU CAN INCLUDE SPARK IN SAGEMAKER AS WELL
+
+structured streaming allow you to query last data streams as a table and it integrates with kinesis
+
+- Feature Engineering
+the more features you have, the larger is your space and so your data become more sparse -> optimal is difficult to find.
+you have to select your features
+PCA, K-means -> dim reduction
+
+TF-IDF = # occurency of the term in the doc / # of the term in the corpus of document (to filter out common words)
+generalization -> n-grams
+
+you can use this for a search algorithm to find the most relevant document given a query (e.g. in spark on EMR)
+YOU CAN RUN A JUPYTER NOTEBOOK ON TOP OF EMR WITH KERNEL PySpark
+
+- Imputing missing values
+
+replace missing values with the mean value from the rest of the COLUMN or the median if you have outliers
+BUT cannot be used for categorical features (in this case you can use most frequent value)
+and also dropping is not the bast choise (even if you are not biasing it)
+
+Machine learning approach:
+KNN -> average the k nearest (define a metric to compute distances)
+DL -> build a model to output the value (BEST FOR CATEGORICAL)
+regression -> linear or not linear relationship between features and the missing one (MICE, multiple imputation by chained equations)
+
+- Dealing unbalanced data
+oversampling
+undersampling (less used, unless avoid big data scaling issues)
+
+SMOTE -> generates new samples of the minority class using KNN nearest neighbors approach 
+increase threshold of classification for the majority class
+
+- Handling outliers
+points that lie more than one standard deviation from the mean can be considered outliers
+AWS's random cut forest
+
+- Binning (or bucketing) is a data processing technique that groups continuous numerical data into discrete intervals (bins) to simplify data, handle outliers, and improve model performance
+
+- transforming
+a certain feature x could be also represented by x^2 if it is better suited
+you can also add another features represented by f(x), to give to your model also non linear trends to learn
+or LOG if a features is exp (better for the model)
+
+- encoding
+
+- scaling/normalizing -> to prevent that features with larger magnitude (e.g. salary agains age) will have more weights
+
+scikit_learn MinMaxScaler
+
+scale back your result!
+
+- shuffling your training data (you don't want to learn signals of the order!)
+
+- SageMaker AI
+it covers the all ML lifecycle
+
+we need a client app -> endpoint(sagemaker) + model deployment/hosting + training <- (ECR) inference code image + training code image
+AND S3 model artifact + S3 training data
+
+--> the model is trained -> store the artifact in S3 -> take those artifacts + inference code image -> deploy and use the model through your client APP
+
+it accepts notebook but also you can do all the stuff with Console
+
+- domains
+put users, apps and resources togheter
+you need to create one before everything
+by default a domain has 2 VPC:
+	one for internet (managed by sagemaker)
+	your own with encrypted traffic to your EFS volume -> YOU CAN SELECT VPC ONLY TO USE ONLY THIS ONE
+---------------
+Data can be injested from:
+S3 (usually), athena, redshift, EMR, keyspaces DB
+
+all python libraries available for preprocessing
+
+1) copy data from S3 (or whatever)
+2) spin up a processing container (you can write your own code such as ECR training code image, or use a built-in algorithm)
+3) copy back result to s3 (specify URL)
+-> this is a TRAINING JOB
+
+2 ways of deploying your model:
+	runtime (persistent on demand endopoint)
+	sagemaker batch transform to get predictions on all the dataset
+you have also some options like elastic inference (accelerate dl models), automatic scaling of endpoints, shadow testing to evaluate new models against currently deployed, ecc...
+
+- SageMaker GroundTruth
+service for labelling your data
+only unsure data is sent to people (cost saving) -> for instance create a task on mechanical turk
+
+OR you can use:
+rekognition(images), comprehend (texts), any pre-trained model or unsupervised technique
+
+- SageMaker Data Wrangler -> ETL pipeline builtin in sagemaker
+import, visualize, transform data
+and also quick model (training and see result to understand what is the best transformation)
+IT'S MORE LIKE A CODE GENERATION TOOL INSTEAD OF TRANSFORMING YOUR DATA IN THE PIPELINE
+AND THEN THIS CODE CAN GO TO SAGEMAKER PIPELINE, FEATURE STORE OR SAGEMAKER PROCESSING
+
+data wrangler troubleshooting:
+- ec2 type not avaible -> increase quota
+- studio appropriate iam roles
+- source data (s3) should have permission to let data wrangler access (AmazonSageMakerFullAccessPolicy)
+
+AWS is moving SageMaker Data Wrangler functionality under SageMaker Canvas in the new Unified Studio UI, per this documentation:
+
+https://docs.aws.amazon.com/sagemaker/latest/dg/canvas-data-prep.html
+
+The SageMaker Data Wrangler user interface is only available under the "Classic" SageMaker Studio UI, not the Unified Studio.
+
+- SageMaker Model Monitor allows you to receive alerts through cloudwatch on any quality deviations on your deployed model
+e.g. new features or missing ones in new data -> DETECT ANOMALIES
+VISUALIZE DATA DRIFT
+DETECT ANOMALIES AND OUTLIERS
+DETECT NEW FEATURES
+NO CODE NEEDED
+ -> integrates with Tensorboard, QuickSight, Tableau
+ -> integrates with sagemaker clarify: detects bias (which fetaures contribute the most to predictions, imbalances across different groups)
+ you have pre-trained metrics: class imbalance, DPL, KL, JS, LP-norm
+
+Model Monitor:
+montoring jobs are scheduled by a monit schedule
+metrics are sent to CW -> you can set alarms and actions (e.g. retrain)
+DATA is stored in S3
+
+* drift in data quality
+* in model quality (acc,...)
+* bias drift
+* feature attribution drift (NDCG score based, feature ranking of training vs live data)
+
+with clarify you can produce Partial Dependence Plot (PDPs)
+for instance you can notice that for age >60 the prediction remains the same
+
+Model monitor Data Capure
+logs input to your endpoints and outputs of your inference to S3 as JSON
+
+
+- sagemaker feature store
+it is organized in feature groups:
+	each group contains 
+	record id feature_name event_time
+
+Online store: put/get record api (e.g. from kinesis)
+offline store (s3): batch access for instance with athena
+
+EVERYTHING ENCRYPED AT REST AND IN TRANSIT
+works with KMS customer master key
+access with IAM
+and also can be integrated with AWS private link
+
+- sagemaker canva -> machine learning for business analysis (no code)
+upload a csv select a column and make prediction
+join datasets
+classif or regression
+data cleaning (duplicates, missing, outliers,...)
+you can also export the model and the data to give them to a ml engineer with sagemaker studio
+you can also fine tune a gen ai bedrock models
+
+- AWS Glue
+SERVERLESS(scalable) schema discovery for your unstructured data: e.g. a data lake-> output a table definition to use with analysis tool like athena, SQL-based, EMR, RedShift, ...
+ETL JOBS (it uses spark under the hood) trigger-driven, scheduled or on demand
+fully managed!!!
+
+* glue crawler scans s3 and creates schemas
+* glue catalog stores them <-----
+
+crawler extracts PARTITIONS based on how your S3 is organized so:
+think about how data should be queried.
+e.g. by time range? so yyyy/mm/dd/device
+by device? device/yyyy/mm/dd
+
+-> more efficient if I have to search for device, that will be the primary partition I will create on top level.
+
+- glue studio: visual editor for ETL jobs
+you can crate DAGs for complex workflows
+
+- glue data quality
+it could infer automatically the rules based on statistics on your data
+it integrates in glue jobs (it could be another node in your DAG) -> evaluate data quality
+DQDL language
+you can fail the job or report it to cloudwatch
+
+- glue databrew
+visual data preprocessing tool
+S3(input),dw, db -> S3 (output)
+250 ready-made transformations (NO WRITE CODE)
+YOU CAN CREATE RECIPIES of transformations to be used in larger jobs
+
+EVERYTHING ENCRYPED SSL IN TRANSIT
+works with KMS customer master key
+access with IAM
+Cloudwatch and cloudtrail
+
+- Handling PII in databrew transformations
+* substitution (REPLACE_WITH_RANDOM)
+* shuffling
+* deterministic encryption
+* deletion
+* masking out
+* hashing
+
+- Athena can:
+query web logs
+querying staging data
+analyze cloudtrail logs in s3
+integration with notebooks
+quicksight
+ODBC,JDBC
+
+Athena + Glue
+S3 -> Glue (catalog) -> athena -> quicksight
+athena can control query access and track costs with WORKGROUPS
+columnar formats save money!(ORC,Parquet)
+security: IAM (on s3) + TLS in transit + KMS at rest on s3 (results)
+
+-> Formatted report/visualization: quicksight
+-> ETL -> Glue
+-> SQL -> athena
+
+
+
+A retail company is launching a series of new products across its global stores. The company wants to forecast daily demand for its products based on historical sales data. The historical data includes information on product sales, inventory levels, and marketing campaigns. However, the timestamps for this data are irregular, and some data points are missing due to occasional stockouts or incomplete records.
+
+Which approach would you recommend to satisfy these requirements with the LEAST operational overhead?
+
+    Process and forecast data using Amazon EMR Serverless with PySpark.
+    Visualize and forecast data using Amazon QuickSight.
+    Prepare and analyze data using Amazon SageMaker Studio Data Wrangler.
+    Clean and forecast data using Amazon SageMaker Studio Notebook with Pandas.
+
+--> data wrangler!
+Amazon QuickSight is just a tool for data visualization with basic forecasting capabilities. It is not primarily designed for extensive data cleaning or handling irregular timestamps and missing data points. QuickSight focuses more on presenting insights rather than preparing data, which is a crucial step in this scenario.
+
+Better performance:
+* columnar (use glue)
+* small number of large files not the opposite
+* partitions (MSCK REPAIR TABLE on already existent data on s3)
+
+ ################ AI Managed Services ##################
+pretrained services
+regional coverage
+specialized cpu and gpu for cost saving
+token-based PRICING
+provisioned throughput
+
+Amazon Comprehend (NLP)
+e.g.
+* analyze customer emails and classify positive or negative experience
+* create and group article by topics
+
+- Custom Classification
+organize documents into categories (text, pdf, word, images)
+
+training data (s3) -> comprehend -> custom classifier
+document -> custom classifier -> document (tagged)
+
+REAL TIME OR BATCH ANALYSIS
+
+- Name entity recognition (NER) from text
+same process to build a custom entity recognizer
+
+Hw to share a model between accounts?
+attach a IAM policy to the version of the model (MUST BE IN THE SAME REGION OF THE FIRST ACCOUNT AND NEED ARN AND OPTIONALLY THE KMS)
+
+Amazon Translate
+
+Amazon Transcribe (speech to text)
+automatically remove PII
+multilingual audio
+
+- to improve accuracy we can input a custom vocabulary for domain-specific terms 
+- and also custom language model for domain specific text data (context)
+-> use both!!
+
+Toxicity detection: tone, pitch and text-based cues
+
+Amazon Polly
+text into speech
+- Lexicons: define how to read certain terms like "AWS" -> amazon web services
+- SSML: "Hello" <break> "how are you?"
+- speech mark: encode where a sentence start/stop in a audio
+- voice engine: generative, neural, ...
+
+Amazon Rekognition
+find objects in images and videos
+
+process: training images (custom labelled) on s3 -> rekognition custom label 
+user-> custom classification
+
+labelling, content moderation (e.g. for your chatbot that generates images), text detection, face detection and analysis, face search, 
+
+Amazon Lex
+build chatbots using voice and text
+the bot understands the intent of the user and invokes the correct lambda to fulfill the intent
+
+Amazon Personalize
+real-time recommendations
+we have recipies:
+e.g. USER_PERSONALIZATION -> recommending items for users
+	 PERSONALIZED_RANKING -> ...
+
+Amazon Textract
+extract text from any scanned documents
+e.g. from driving licence, passport,...
+
+Amazon Kendra
+extract answers from within a document
+source (s3, gdrive, sharepoint,...) -> indexing -> kendra + KIndex -> Answer <- Question
+
+Amazon Augmented AI
+if a prediction is low-confidence -> sent for human-review
+
+GPU-based EC2 instances (p3,p4,...) and AWS Tranium (ML chip)
+Trn1 instance has 16 tranium accelerators
+50% cost reduction to train model
+AWS inferentia
+Inf1, Inf2
+70% cost reduction
+LOWEST ENVIRONMENTAL FOOTPRINT
+
+Amazon Lookout
+ANOMALY DETECTION
+you have to define a metric to optimize
+
+Amazon Fraude Detector
+online payments, new accounts,...
+rule-based actions
+
+- based on the data that I fed you prev. is this new transaction fraudolent?
+
+Amazon Q business
+Gen-AI assistant based on company's data
+
+- Data connectors (fully managed RAG for s3, gdrive, ...)
+- Plugins: interact with 3rd party services
+
+IAM identity center for auth that can be integrated with IdP (activedirectory or google)
+
+Admin controls = guardrails
+
+Q apps = vibe coding
+
+Amazon Q developer
+answers questions about AWS documentation and resources in your account
+suggest CLI commands
+and also it works like copilot (integrated with IDEs e.g. VSCODE)
+
+############## built-in sagemaker algorithms ################
+sagemaker input modes
+	S3 file mode: copies training data from s3 to local directories in the container (good for small amount of data)
+	s3 fast file mode (similar to pipe mode): training can begin without download data (best with sequential access)
+	pipe mode: streams data directly from s3 (mainly replaced by fast file)
+
+	amazon s3 express one-zone: high performance storage works with all of 3
+	amazon FSx for lustre: single az requires vpc (REALLY MASSIVE DATA, MILIONS OF IOPS)
+	amazon EFS: requires vpc
+
+Linear Learner (regression and classification)
+Training input expected: 
+	recordIO-wrapped protobuf (float32)
+	csv (first column as label)
+	File and pipe both supported
+	OPTIMIZATION -> SWITCH FROM FILE TO PIPE MODE
+training data should be shuffled and normalized
+
+Important Hyperparameters: 
+	- target_precision: hold precision at the target value, while maximizing recall
+	- target_recall: opposite
+
+XGBoost
+extreme gradient boosting (regression/classification)
+fast and powerful
+gradient descent to minime loss when adding new trees -> boosted group of decision trees
+IT'S LIKE An ensable of trees (sum of predictions) BUT:
+XGBoost is an ensemble of decision trees, but specifically it is an ensemble built using gradient boosting, not just a generic collection of trees.
+Here’s the idea in simple terms:
+Each individual model in XGBoost is usually a decision tree (typically shallow trees).
+Trees are added sequentially, not independently.
+Each new tree is trained to correct the errors made by the previous trees.
+Imagine you’re trying to predict a number (regression).
+
+1) First tree
+Makes a rough prediction.
+
+2) Compute errors
+For each data point, calculate how wrong the prediction was.
+
+3) Second tree
+Is trained to predict those errors (not the original target).
+
+Repeat
+
+4) Final prediction
+
+Add up predictions from all trees:
+All trees are combined (summed) to produce the final prediction.
+Y = e1(x) + e2(x) + ...
+
+it's not made for sagemaker, it's opensource
+Training input expected: 
+	csv or libsvm
+	recentrly aws updated recordIO-wrapped protobuf and parquet
+A lot of hyperparameters, some of them:
+	subsample: prevent overfitting
+	eta: step size, prevents overfitting
+	gamma,alpha(L1 reg.),beta(L2 reg.) -> larger = more conservative
+	eval_metric: optimize error,AUC,...
+	scale_pos_weight: unbalanced data
+	max_depth: too high -> overfit
+MEMORY-BOUND, NOT COMPUTE-BOUND!!
+
+LightGBM
+class, reg. , ranking
+input format:
+	txt/csv for train/inference
+hyperparameter:
+	learning_rate
+	num_leaves: max leaves per tree
+	max_depth
+	min_data_in_leaf: can address overfitting
+CPU-ONLY Algorithm
+MEMORY-BOUND -> choose general purpose over compute-optimize (M5 not C5)
+
+Seq2Seq
+RNN/CNN w/ attention
+speech to text, translation, summary
+input expected:
+	recordIO-protobuf (integers)
+	start with tokenized text file
+we have pretrained models and public trainset
+hyperparameters:
+	batch_size
+	optimizer
+	lr
+	num_layers_encoder/decoder
+	accuracy/BLEU/perplexity (these last 2 better for translation)
+only GPU instance type (p3,..) and only 1 machine
+
+DeepAR
+forecasting one-dimensional time series data
+RNNs
+input expected:
+	JSON line: zipped with gzip or parquet (optimize)
+	each value {start: timestamp target:[x,y,z,...], cat:(categorical features), dynamic_feat:}
+hyperparameters
+	context_length
+	epochs
+	mini_batch_size
+	lr
+	num_cells
+cpu/gpu single/multi machine
+
+BlazingText
+- text classification: predict labels for a sentence (not documents) (web search, information retrieval...)
+- supervised
+- word2vec (close vectors = similar words)
+input expected:
+	__label__ 2 text
+hyperparameters
+	word2vec
+		mode (cbow, skipgram, ...) -> recommended single ml.p3.2xlarge instance
+		lr
+		window_size
+		vector_dim
+		neg_samples
+	text-classification
+		epochs
+		lr
+		word_ngrams
+		vector_dim
+
+Object2Vec
+visualize clusters, gendre prediciton recommendations
+we have 2 input channels: 2 encoder representations (lstm, cnn, avg-pool embeddings) fed in a comparator that output a label
+input expected:
+	tokenize into integers: {"label": 0, "in0": [2,45,1,50,...]}
+hyperparameters
+	Enc1_network
+	Enc2_network
+	dropout
+	epochs
+	lr
+	...
+
+only single machine, (multi GPU also)
+INFERENCE: use INFERENCE_PREFERRED_MODE
+
+ObjectDetection
+labels to bounding boxes
+2 variants: MXNet and TensorFlow
+input expected:
+	png or jpg
+	json for annotations
+multi gpu and multi machine ok
+
+ImageClassification
+MXNet: we have from scratch and transfer learning mode
+tensorflow: various modelm you can fine tune the top classification layer
+
+hyperparameters
+	usual deep learning: batch_size, lr, optimizer
+	optimizer-specific: weight_decay, beta1, beta2, eps, gamma
+GPU for training: multi machine and multi gpu
+cpu or gpu for inference: m5, p2,p3, g4dn, g5
+
+SemanticSegmentation
+pixel-level classification
+input expected:
+	jpg images png annotations
+you can choose from 3 algorithms: fully-conv network, pyramid scene parsing, deeplabv3
+backbone: resnet50 or 101
+incremental or training from scratch
+ONLY GPU SUPPORTED FOR TRAINING
+CPU ACCEPTED FOR INFERENCE
+
+RandomCutForest
+based on amazon algorithm
+anomaly detection, unsupervised
+assign anomaly score to each data point. e.g. detect spikes in time series
+input expected
+	RecordIO-protobuf
+	CSV
+	both pipe and file supported
+how it works: if i add a point and the trees add branches just to handle some new data probably means something weird
+-> change in complexity
+
+hyperparameters
+	num_trees (increasing reduces noise)
+	num_samples_per_tree -> such that 1/num_samples is equal to the ratio of number of anomalous data 
+use M4, C4, C5 for training (no advantages from GPU)
+C5 for inference
+
+NeuralTopicModel
+organize documents into topics
+input expected
+	RecordIO-protobuf or CSV (tokenized into integers)
+	SEPARATED CSV file that count for each document every word in the vocabulary (auxiliary channel)
+	file and pipe supported
+hyperparameters
+	mini_batch_size and lr: for the validation loss (reduce them but more training time)
+	Num_topics
+GPU recommended for training
+CPU ok for inference
+
+LatentDirichletAllocation
+same but only grouping documents with shared subset of words
+unsupervised
+CPU BASED, MORE EFFICIENT THAN NTM
+hyperparameters
+	Num_topics
+	Alpha0: small values sparse topic
+Single CPU instance
+
+KNN
+return the avg label of the K nearest
+it includes a dim reduction stage after sampling data
+hyperparameters
+	K!
+	Sample_size
+CPU or GPU (for large batches)
+
+K-means
+divide data into k groups
+input expected
+	RecordIO-protobuf or CSV
+	pipe and file
+hyperparameters
+	K!
+	mini_batch_size
+	Extra_center_factor
+	Init_methid
+PCA
+uses SVD
+	regular (sparse and moderate number of observations and features)
+	randomize (approximation)
+
+FactorizationMachines
+dealing with sparse data --> recommender systems 
+predict a product a user never interacted with
+input expected
+	RecordIO-protobuf (Float32) NOT CSV!!
+== Factors that multiplied togheter give the original sparse matrix
+CPU recommended (GPU is good with dense, otherwise you waste a lot of operations multiplying zeros)
+
+IPinsights
+unsupervised learning of IP behaviors
+input expected
+	CSV: Entity,IP
+
+############## MLOps ##############
+- Deployment guardrails
+	asyncronous or real-time inference endpoints
+	blue/green deployments:
+		* all at once: shift all the traffic, monitor, terminate blue
+		* canary: shift a small portion of the traffic and monitor
+		* linear: shift traffic in lineary spaced steps
+	auto-rollback
+- Shadow tests
+	compare performance of shadow variant
+	decide when promote it
+
+SageMaker + Docker
+all models in sagemaker need to be hosted in a docker container
+you own your code, so you should put it in a defined structured directory for sagemaker
+
+in your dockerfile:
+COPY train.py /opt/ml/code/train.py
+Env SAGEMAKER_PROGRAM train.py
+...
+...
+
+you can test multiple model on live traffic using production variants
+
+- SageMaker on the edge
+SAGEMAKER NEO = compiler + runtime for embedded devices
+Neo + IoT GreenGrass -> you can deploy a model trained in the cloud to an edge device to make inference
+
+- choosing instance type
+in general, deep learning -> P3, g4dn (GPU) for training
+			inference -> C5
+			EC2 spot for training -> you can use checkpoints on S3 to resume if interruption
+			scaling policy
+			configure vpc with at least 2 subnets, each in a different az
+			for each production endpoint, deploy multiple instances because 
+			SAGEMAKER AUTOMATICALLY DISTRIBUTES MULTI-AZ!
+
+- Deploy models for inference
+sagemaker JumpStart: deploy pre-trained model to pre-configured endpoints
+ModelBuilder from sagemaker: configure deployment settings from code (Python SDK)
+cloudformation
+
+* Real-time inference: low-latency requirements
+* sagemaker serverless inference: workload with idle period
+* asynchronous inference: large payloads, 
+* autoscaling
+* Neo (to optimize inference)
+
+Sagemaker recommender recommends best instance types & config for your models
+
+- Inference Pipelines
+you can combine containers (preprocessing, inference, ...)
+
+Amazon sagemaker Operations for Kubernates
+hybrid workflows (cloud + onprem)
+INTEGRATION WITH KUBEFLOW (ML platform for kubernates)
+and also sahemaker components for kubeflow pipelines
+
+Sagemaker Projects
+NATIVE MLOPS SOLUTION
+BUILD IMAGE, PREPARE DATA, TRAIN, ..., MONITOR AND UPDATE MODELS
+-> USE SAGEMAKER PIPELINES (preprocessing, train, processing(eval), register model on model registry)
+It's just a step of a more complex aws codepipeline
+
+AWS Batch
+run ANY batch jobs as docker images (Glue only for ETL)
+FULLY SERVERLESS (optimal capacity based on volume and requirements)
+BETTER for NON-ETL jobs
+
+AWS Lake Formation
+built on top of Glue
+- loading data & monitoring data flow
+- setup partitions
+- encrypt and manage keys
+- defining transformation jobs (USING GLUE)
+the process is a little more complicated
+cross-account permission:
+	recipient must be set up as administrator of the data lake
+	AWS resource manager for accounts external to our organization
+	IAM permission for cross-account
+IAM permission on the KMS key needed for encrypted data catalog in lake formation
+IAM permission to create blueprints and workflows
+
+Governed Tables -> feature for ACID transactions across multiple tables
+	support kinesis
+	can query with athena
+PERMISSION to the underline S3 data, CAN BE SET FROM THE LAKE FORMATION UI IN A EASY WAY
+	can use policy tags on db, tables and columns
+	can select specific permissions for tables or columns
+
+############# Model Training ##################
+L1 & L2 regularization:
+L1 Regularization (Lasso)
+	λ∑∣wi∣
+	Penalizza il valore assoluto dei pesi -> unico modo per diminuire la loss è portarli a zero
+	Porta molti pesi esattamente a zero
+	Produce modelli sparsi
+	Effettua feature selection automatica -> REDUCTION OF DIMENSIONALITY, GOOD!
+	✔ Utile quando ci sono molte feature inutili
+	✔ Modelli più interpretabili
+	✖ Può essere instabile se le feature sono fortemente correlate -> meglio L2!
+
+recall = TP/TP+FN -> se lo massimizzo, (1) vuol dire che becco tutti i positivi (e.g. se devo identificare frodi)
+-> true positive rate
+precision = TP/TP+FP
+
+F1 = 2 * precision*recall / precision + recall ---> balance
+
+R^2,MSE,... -> regression metrics
+
+Automatic Model Tuning (AMT) in SageMaker
+	define hyperparameters you care, ranges, and metrics to optimize
+	sagemaker spins "hp tuning job" -> a lot of instances
+	best result can be deployed as a model
+	it learns as it goes -> don't need to try every possible combination
+	- early stopping
+	- warm start (e.g. from a previous stopped job)
+	- resource limits -> quotas
+HOW IT WORKS?
+* grid search
+* random search -> can run in parallel
+* bayesian optimization -> treats the tuning as a regression
+* hyperband -> fast (nice for algorithm that publish results iteratively like Neural networks)
+
+SageMaker Autopilot
+- algorithm selection
+- data preprocessing
+- model tuning
+- all infrastructure
+	
+	load data from s3
+	select column to predict
+	visualize ranked list of model
+	deploy and monitor a model or refine it with notebook (provided)
+TRAINING MODES:
+	HPO
+	Ensembling
+	Auto (HPO if dataset >100MB else Ensembling)
+
+integrates with clarify for explainability
+
+Other Sagemaker features
+	sagemaker studio (visual ide, no code)
+	sagemaker notebooks
+	sagemaker experiments (organize, track, and compare machine learning training iterations, such as hyperparameter tuning, model versions, and dataset variations)
+	sagemaker debugger (saves internal state at periodical interval and define rules for detecting something like gpumemory increase,cpu,ecc... and alert with cloudwatch or sms/email/stop_training)
+
+sagemaker model registry: 
+catalog of models
+you can associate metadata with models
+manage approval status of models
+deploy models to production -> e.g. you can store in parameter store the metadata of the version you want to pick and invoke a lambda with an event rule when a new model is approved
+share models
+
+-----OPTIMIZATION-----
+Sagemaker training compiler: compile & optimize training jobs on GPU instances
+compiler_config = TrainingCompilerConfig() # in your estimator
+Warm pools: retain and re-use provisioned infrastructure
+(e.g. train jobs repeatedly, use the same hardware -> use persistent cache to reduce cost)
+-> when you create a training job, put the time in "keep alive period"
+sagemaker checkpointing: /opt/ml/checkpoint saved in s3 (snap)
+-> when you create a training job...
+
+How to distribute a single training job across more instances?
+	distributed training libraries 
+	distributed data parallelism
+
+Sagemaker model parallelism library: to distribute the model itself (if huge!)
+-> specify in your estimator code "torch_distributed": {"enabled": True}
+-> you can paralelize data shared too
+
+#################### GEN AI - Bedrock #########################
+RAG
+Json schema data -> upload to S3 -> bedrock embedding model -> vectore store (e.g. opensearch instance) -> bedrock RAG agent
+
+features
+	model eval (human, automatic)
+	import models from s3 or sagemaker
+	provisioned throughput (dedicated capacity (like tokens/second or processing units) for AI models)
+	watermark detection (detect images generated by titan)
+	bedrock studio (sso auth, no need to have aws account)
+
+####################### Q&A #######################
+A company is building a web-based AI application by using Amazon SageMaker. The application will provide the following capabilities and features: ML experimentation, training, a central model registry, model deployment, and model monitoring.
+The application must ensure secure and isolated use of training data during the ML lifecycle. The training data is stored in Amazon S3.
+The company needs to use the central model registry to manage different versions of models in the application.
+Which action will meet this requirement with the LEAST operational overhead? 
+
+ C. Use the SageMaker Model Registry and model groups to catalog the models.
+
+ A company is building a web-based AI application by using Amazon SageMaker. The application will provide the following capabilities and features: ML experimentation, training, a central model registry, model deployment, and model monitoring.
+The application must ensure secure and isolated use of training data during the ML lifecycle. The training data is stored in Amazon S3.
+The company is experimenting with consecutive training jobs.
+How can the company MINIMIZE infrastructure startup times for these jobs? 
+
+ B. Use SageMaker managed warm pools.
+
+ A company is building a web-based AI application by using Amazon SageMaker. The application will provide the following capabilities and features: ML experimentation, training, a central model registry, model deployment, and model monitoring.
+The application must ensure secure and isolated use of training data during the ML lifecycle. The training data is stored in Amazon S3.
+The company needs to run an on-demand workflow to monitor bias drift for models that are deployed to real-time endpoints from the application.
+Which action will meet this requirement?
+AConfigure the application to invoke an AWS Lambda function that runs a SageMaker Clarify job.
+
+
+An ML engineer needs to process thousands of existing CSV objects and new CSV objects that are uploaded. The CSV objects are stored in a central Amazon S3 bucket and have the same number of columns. One of the columns is a transaction date. The ML engineer must query the data based on the transaction date.
+Which solution will meet these requirements with the LEAST operational overhead?
+AUse an Amazon Athena CREATE TABLE AS SELECT (CTAS) statement to create a table based on the transaction date from data in the central S3 bucket. Query the objects from the table.
+
+
+
+A company has deployed an XGBoost prediction model in production to predict if a customer is likely to cancel a subscription. The company uses Amazon SageMaker Model Monitor to detect deviations in the F1 score.
+During a baseline analysis of model quality, the company recorded a threshold for the F1 score. After several months of no change, the model's F1 score decreases significantly.
+What could be the reason for the reduced F1 score?
+
+A. Concept drift occurred in the underlying customer data that was used for predictions.
+
+
+
+An ML engineer has developed a binary classification model outside of Amazon SageMaker. The ML engineer needs to make the model accessible to a SageMaker Canvas user for additional tuning.
+
+The model artifacts are stored in an Amazon S3 bucket. The ML engineer and the Canvas user are part of the same SageMaker domain.
+
+Which combination of requirements must be met so that the ML engineer can share the model with the Canvas user? (Choose two.)
+A The ML engineer and the Canvas user must be in separate SageMaker domains.
+B The Canvas user must have permissions to access the S3 bucket where the model artifacts are stored.
+C The model must be registered in the SageMaker Model Registry.
+D The ML engineer must host the model on AWS Marketplace.
+E The ML engineer must deploy the model to a SageMaker endpoint.
+
+The correct two requirements are:
+
+    B. The Canvas user must have permissions to access the S3 bucket where the model artifacts are stored.
+    C. The model must be registered in the SageMaker Model Registry.
+
+In practice, sharing a model for a Canvas user to work with (including additional tuning) is done via SageMaker Model Registry, and the user still needs S3 read access to the underlying model artifacts location to use it.
+
+Incorrect options (why):
+
+    A is wrong: they do not need separate domains (being in the same domain is fine and typical).
+    D is irrelevant: AWS Marketplace is not required to share internally.
+    E is not required just to make it accessible for Canvas tuning; deployment to an endpoint is for inference/hosting, not for sharing the model artifact for tuning.
+
+- An ML engineer is developing a fraud detection model on AWS. The training dataset includes transaction logs, customer profiles, and tables from an on-premises MySQL database. The transaction logs and customer profiles are stored in Amazon S3.
+
+The dataset has a class imbalance that affects the learning of the model's algorithm. Additionally, many of the features have interdependencies. The algorithm is not capturing all the desired underlying patterns in the data.
+
+The training dataset includes categorical data and numerical dat
+
+a. The ML engineer must prepare the training dataset to maximize the accuracy of the model.
+
+Which action will meet this requirement with the LEAST operational overhead?
+A Use AWS Glue to transform the categorical data into numerical data.
+B Use AWS Glue to transform the numerical data into categorical data.
+C Use Amazon SageMaker Data Wrangler to transform the categorical data into numerical data.
+D Use Amazon SageMaker Data Wrangler to transform the numerical data into categorical data.
+
+C. Use Amazon SageMaker Data Wrangler to transform the categorical data into numerical data.
+
+Data Wrangler provides built-in, low-ops feature engineering and preprocessing inside SageMaker (including one-hot encoding/ordinal encoding and other transformations), which is typically less operationally heavy than building and running ETL jobs in AWS Glue.
+
+Why the other options are not suitable:
+
+    A (Glue categorical → numerical): doable, but higher operational overhead (jobs, orchestration, monitoring) than Data Wrangler for ML prep workflows.
+    B/D (numerical → categorical): generally not the right direction for maximizing model accuracy in this context; most ML algorithms require categorical features encoded numerically, not the reverse.
+
+----------------------
+
+A company stores historical data in .csv files in Amazon S3. Only some of the rows and columns in the .csv files are populated. The columns are not labeled. An ML engineer needs to prepare and store the data so that the company can use the data to train ML models.
+Select and order the correct steps from the following list to perform this task. Each step should be selected one time or not at all. (Select and order three.)
+x Create an Amazon SageMaker batch transform job for data cleaning and feature engineering. -> batch transf is for predictions
+3) Store the resulting data back in Amazon S3.
+x Use Amazon Athena to infer the schemas and available columns. -> not for that, athena needs a schema
+1) Use AWS Glue crawlers to infer the schemas and available columns.
+2) Use AWS Glue DataBrew for data cleaning and feature engineering.
+
+
+################# PLOTS #################
+
+    Bar Chart → Examining the frequency of purchases for different items over a specific time period
+
+    A bar chart is best for comparing counts across discrete categories.
+    Here the categories are typically items (SKUs) (optionally grouped by a time window like day/week/month), and the measure is number of purchases.
+
+    Histogram → Understanding the concentration and distribution of transaction values in a continuous range
+
+    A histogram is specifically for continuous numeric variables (e.g., transaction value, basket value).
+    It buckets values into ranges (bins) and shows how many transactions fall into each range, which directly reveals distribution, skew, and concentration.
+
+    Heatmap → Identifying patterns in purchasing behavior across various time intervals and item categories
+
+    A heatmap is ideal when you want to see patterns over two dimensions at once.
+    Here the two dimensions are time intervals (e.g., hour-of-day/day-of-week) and item categories, and color intensity shows purchase volume or revenue, making trends/seasonality and hotspots easy to spot.
+
+Note: a density plot can also represent the distribution of a continuous variable, but since you had to select three, the cleanest one-to-one mapping is Histogram for distributions, with Heatmap for two-dimensional patterns and Bar Chart for discrete frequencies
+
+------------------------
+
+Amazon SageMaker Data Wrangler offers a visual interface for preparing data for machine learning. It allows users to perform various data analysis tasks, including data visualization.A scatter plot is a useful tool for showing the relationship between two continuous variables. By graphing each observation as a point, the scatter plot helps in identifying correlations, trends, and potential outliers in the data. It provides a clear visual representation of how one variable changes in relation to another, making it easier to detect linear and non-linear relationships, as well as clusters and deviations
+
+    Scatter Plot: good for relationship between two variables at a time
+    Bias Report: focuses on bias/fairness across sensitive attributes, not general feature correlation.
+    Histogram: shows distribution of a single feature, not correlations between features.
+    Multicollinearity is incorrect because it’s just a statistical phenomenon in which several independent variables in a model are highly correlated. It is not a visualization technique but rather an issue that needs to be detected and addressed through statistical analysis, often using techniques like variance inflation factor (VIF) or correlation matrices.
+
+
+
+
+
+
+
+
+
+
+

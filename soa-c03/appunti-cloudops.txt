@@ -1,0 +1,1120 @@
+============= EC2 =============
+- Changing instance type is allowed only for EBS-based instances and EBS optimization is not allowed for all the types (for instance not for t2-nano but for other types it is enabled by default)
+- Enhanced networking (DRIVERS):
+	Elastic Network Adapter: up to 100Gbps (for newer generation e.g. t3.micro)
+	Elastic Fabric Adaptor: only for linux dedicated for HPC (great for instances in the same cluster)
+- Placement groups:
+	cluster (low latency single AZ but dangerous, 10Gbps if ENA enabled, good for big data job)
+	spread (for critical app but max 7 per AZ)
+	partition (spread but not isolated, each partition is a rack, up to 7 part for AZ)
+
+- Shutdown behavior from the OS
+	stop (default)
+	terminate (even if there is a termination protection, if the behavior is set to terminate, it still will be terminated IF THE STOP COMES FROM THE OS (NOT FROM THE CLI))
+
+you cannot enable termination protection for spot instance
+
+Resizing of an instance is only possible if the root device for your instance is an EBS volume - If the root device for your instance is an EBS volume, you can change the size of the instance simply by changing its instance type, which is known as resizing it. If the root device for your instance is an instance store volume, you must migrate your application to a new instance with the instance type that you need.
+
+You must stop your Amazon EBS–backed instance before you can change its instance type. When you stop and start an instance, AWS moves the instance to new hardware; however, the instance ID does not change.
+
+If your instance is in an Auto Scaling group, the Amazon EC2 Auto Scaling service marks the stopped instance as unhealthy, and may terminate it and launch a replacement instance 
+- Launching troubleshooting 
+
+	InstanceLimitExceeded (max VCPU in that region): it means you have to request aws to increase your limit or you need to launch your instance in a different region (this limit is only for on demand and spot instances)
+	on aws quota you can read how much can be increased
+
+	InsufficientInstanceCapacity: it means you need to wait some minutes or making smaller requests or submit a request for a different type of instances that should be resized later (IN THAT AZ!!)
+
+	InstanceTerminateImmediately: EBS snapshot corrupted, or EBS volume limit or EBS encripted and no permissions to access kms key
+
+- SSH troubleshooting
+	400 permissions on pem.key otherwise unprotected private key file
+
+	host key not found or permission denied or connection closed -> username not correct
+
+	connection timed out: security group not configured correctly
+							route table for the vpc
+							high cpu load
+							it doesn't have an ipv4
+	Remember to allow an inbound rule for the authorized ip on port 22
+	when we use ec2 instance connect (from CLI) what happens is that you are using an API that push a one time key (60s)--> that is allowed for a specific ec2 instances range of ips (you need to allow that range that is published on the internet)
+
+- purchasing options:
+	on demand: short predictable workload (pay per seconds)
+	reserved: (1 and 3 years) -> long workload (scope could be regional or zone)
+	savings plans: similar but commitment to an amount of usage (eg 10$/h) (flexible instance size)
+	spot: short, cheap (the job must be RESILIENT TO FAILURE e.g. data analysis, batch jobs, image proc, ...NO DATABASE!)
+			you can fix a max and if you surpass it, terminate or stop instances after 2min period
+			to terminate correctly you should delete your spot request first and then terminate
+			use SPOT FLEETS to save money (best price for desired target capacity), and you can also define a on-demand capacity that means for that block you reserved, you need at least that number of instances (up to 6h), and target-capacity.
+
+- Spot Instance Advisor è solo uno strumento informativo. Ti mostra storicamente quali pool di Spot sono meno soggetti a interruzioni, ma non automatizza la selezione dei pool in tempo reale. Non garantisce che il tuo Auto Scaling group sfrutti le pool con maggiore disponibilità per il numero di istanze richieste.
+- Capacity optimized strategy: è progettata proprio per questo scenario. Quando Auto Scaling lancia le Spot Instances, questa strategia sceglie automaticamente i pool di Spot con più capacità disponibile per ridurre al minimo il rischio di interruzioni.
+	dedicated hosts: book a phisical server ($$) you can use your software licenses and can be on demand or reserved and support your company compliance rules --> YOU HAVE VISIBILITY AT LOW LEVER HARDWARE
+	dedicated instances: can move location after stop/start, hardware dedicated to you that can be shared with other instances in the same account
+	dedicated server: noother customer will share your hardware
+	capacity reservation: reserve capacity in a specific AZ for any duration --> to have discount it's better to combine with regional reserved instances and saving plans (you pay even if unused) -> good for short-term workloads that should be executed in a specific AZ
+
+- Burstable instances (T2/T3) e.g. t2.micro
+	OK CPU PERFORMANCE (e.g. a spike cpu workload -> consume a burst credit)
+	credits are accumulated over time
+	if you finish the credits, cpu perfromance drops
+	if you have unlimited burst credit balance, you pay extra-cost $$
+
+- Elastic Ip needed to have a fixed ip (can remap across instances)
+	good to mask a failure by attaching this ip to another instance
+	max 5 ips in your account (you can ask aws to increase it)
+
+- CloudWatch metrics for EC2 (NO MEMORY AND DISK!)
+	default collected at 5 min interval
+	detailed monitoring = paid 1 min
+	cpu (burst credits), network, disk...
+	and also custom metrics (RAM (not included in the AWS EC2 Metrics), application level...)
+- unified cloudwatch agent -> HAS MEMORY AND DISK METRICS!
+	collect logs and send them to cloudwatch logs
+	configured with SSM parameter store
+	needed IAM role to push logs and metrics to cloudwatch
+	Procstat plugin ✅
+		The procstat plugin is part of the CloudWatch Agent.
+		It can monitor individual processes by name or PID.
+
+Memory utilization is not reported by default on EC2 instances—even with detailed monitoring turned on. To collect memory metrics, you must install and configure the CloudWatch agent on the EC2 instances.
+Because the instances run in an Auto Scaling group, the correct and scalable approach is to:
+Use (or create) an AMI that already includes the CloudWatch agent,
+Ensure the agent is configured to publish memory metrics to CloudWatch.
+When the Auto Scaling group launches new instances, they’ll automatically report memory usage.
+Why not the others?
+❌ Turn on CloudWatch detailed monitoring
+This only increases metric frequency (1-minute intervals) for default metrics and does not include memory.
+
+- EC2 status check (automated checks to identify software and hardware issues)
+	system status check (eg issues on phisical host, loss of power...) -> you can wait OR you can migrate to another host with another public ip
+	instance status check (software or network configuration issues, reboot or change conf)
+	EBS status check
+How to automate the recover? CW metrics contains all of these checks, they will be trigger CW alarms that recover EC2 instance with the same ip, metadata and plaement group (preferred).
+OR
+autoscaling group -> different IP
+StatusCheckFailed	Reports whether either the instance or system status check has failed (0 = OK, 1 = failed)	Count	Combined
+StatusCheckFailed_Instance	Reports failures detected by the instance status check	Count	Instance-level
+StatusCheckFailed_System	Reports failures detected by the system status check	Count	System-level
+
+SLOW BOOT
+-> A warm pool gives you the ability to decrease latency for your applications that have exceptionally long boot times, for example, because instances need to write massive amounts of data to disk. With warm pools, you no longer have to over-provision your Auto Scaling groups to manage latency in order to improve application performance.
+
+A store-backed instance in AWS refers to an Amazon Machine Image (AMI) or an Amazon EC2 instance that uses a local, ephemeral storage volume for its root device, known as an instance store. This differs from an EBS-backed instance, which uses a persistent, network-attached Elastic Block Store (EBS) volume. Instance store-backed instances offer high performance and faster boot times but are temporary; data is lost if the instance is stopped or terminated
+--> create an AMI and launch a new instance and attach elastic ip to resize it!
+-> if you have EBS, You must stop your Amazon EBS–backed instance before you can change its instance type. AWS moves the instance to new hardware; however, the instance ID does not change
+
+EC2 Instance Status Checks - MUST KNOW
+
+These can be the focus of 2 to 3 questions at the exam, therefore know the differences:
+
+
+SYSTEM status checks
+
+System status checks monitor the AWS systems on which your instance runs
+
+    Problem with the underlying host. Example: 
+
+        Loss of network connectivity
+
+        Loss of system power
+
+        Software issues on the physical host
+
+        Hardware issues on the physical host that impact network reachability
+
+    Either wait for AWS to fix the host, OR
+
+    Move the EC2 instance to a new host = STOP & START the instance (if EBS backed)
+
+
+INSTANCE status checks
+
+Instance status checks monitor the software and network configuration of your individual instance
+
+    Example of issues
+
+        Incorrect networking or startup configuration
+
+        Exhausted memory
+
+        Corrupted file system
+
+        Incompatible kernel
+
+    Requires your involvement to fix
+
+    Restart the EC2 instance, OR
+
+    Change the EC2 instance configuration
+
+Attached EBS status checks
+
+Attached EBS status checks monitor the EBS volumes attached to your individual instance
+
+    Example of issues
+
+        Hardware or software issues on the storage subsystems underlying the EBS volumes
+
+        Hardware issues on the physical host that impact reachability of the EBS volumes
+
+        Connectivity issues between the instance and EBS volumes
+
+    Requires your involvement to fix
+
+    Restart the EC2 instance, OR
+
+    Replace the affected EBS volumes
+
+
+- EC2 Hybernate: preserved RAM (written in a file in EBS volume), faster boot
+useful for long-running processing or services that take time to initialize
+
+root volume must be encrypted
+AVAILABLE ONLY FOR ON-DEMAND, SPOT AND RESERVED INSTANCES (to maximize the use)
+
+------------------- Amazon Machine Image -------------------------
+
+-> customization of an ec2 instance (own software, os, config, monitoring)
+-> faster boot
+built for a specific region (can be moved across regions)
+- public AMI
+- your own AMI
+- AWS marketplace (someone else potentially sells)
+
+right click on the instance -> create image
+
+if you selected no reboot, you can create image withour rebooting instance but risk of not FS integrity (also aws backup doesn't guarantee integrity since there is no reboot)
+
+--> AMI can be used to migrate an instance from an AZ to another (AMI ARE REGION-LOCKED, THE SAME ID CANNOT BE USED ACROSS REGIONS)
+
+Cross account AMI sharing:
+	if unencrypted volume ok
+	otherwise it should be customer managed keys and you need to share them too -> IAM permission to access the key
+
+Cross account AMI copy:
+	IAM permission to read the EBS snapshot
+
+EC2 image builder
+
+automate the creation, validation, mantain and test EC2 AMIs
+can be scheduled and you only pay for the underline resources, not for the service itself
+
+You can tag your approved AMIs and attach IAM policies to user to force them to launch instances only from pre-approved AMIs (e.g. Environment: prod) -> AWS config (service to use)
+
+-------------- AWS System Manager --------------
+manage EC2 and on-prem systems at scale
+integrated with AWS config, cloudwatch
+automated patching -> DO NOT REPLACE AMIs!
+free service
+
+you need to install SSM agent onto the system (installed by default in amazon linux 2 AMI)
+*********SE LA DOMANDA DICE CHE USANO AMAZON LINUX 2 AMI ALLORA USA SOLUZIONI BASATE SU SYSTEM MANAGER!******
+EC2 instances should have the correct role (IAM permission) to allow SSM actions
+Attach an IAM instance profile to the instances. Ensure that the instance profile contains the AmazonSSMManagedinstanceCore policy
+
+FEATURES OF SYSTEM MANAGER:
+
+- tags can be used to create resource groups
+Regional service
+
+- SSM Documents (YAML or JSON)
+	can be used to define parameters and actions
+	you can use run command to execute a single cmd or a document across multiple instances (e.g. resource group) (no ssh needed, it's the agent that executes the cmds)
+	can be invoked through event bridge
+
+- Automation
+	common uses: restart instances, create AMIs, snapshots,...
+	Automation runbook: documents of type automation
+	can be triggered
+
+- Parameter store
+	secure storage for config and secrets through IAM permission
+	there is the ($) advanced parameter option (you can assign TTL to secrets, multiple policies, ...)
+
+- Inventory and & state manager
+	inventory: collect metadata from your managed instances
+	state manager: define the state you want for your instances (e.g. port 22 closed, av installed...)
+	-> uses ssm documents to create a state manager ASSOCIATION
+
+- Patch manager
+	os updatesk, security updates, app updates
+	patch baseline: e.g. 3 instances with ssm agent, 2 of them has the tag "patchGroup: dev", we have the baseline id:xxxx
+	for patchgroup: dev
+
+- Session manager
+	access a shell on your ec2 without ssh, keys, bastan hosts
+	a user should have the correct IAM permission (BASED ON TAGS!)
+	"Condition": {
+	  "StringEquals": {
+	    "ec2:ResourceTag/Environment": "Production"
+	  }
+	}
+	you can leave your inbound rules of recurity group empty
+
+ESEMPIO:
+Usare AWS Systems Manager Session Manager:
+Richiedere agli utenti di accedere alle EC2 solo tramite Session Manager.
+Configurare Session Manager per inviare i log delle sessioni a CloudWatch Logs.
+Configurare un filtro di metriche e un allarme CloudWatch per rilevare eventi di sicurezza rilevanti.
+
+-------------- EC2 high availability (multi AZ) and scalability (vertical=increase_size and horizontal=increase_number=ELB/ALB) -----------------
+
+Make the application highly available.”
+
+👉 High availability su AWS = distribuzione su più Availability Zone (AZ)
+(Non regioni diverse — quello è disaster recovery / multi-region, non HA).
+
+💡 5️⃣ Regola d’oro per l’esame
+
+Quando vedi la parola “highly available” in una domanda AWS:
+👉 pensa subito a:
+
+≥ 2 Availability Zones
+
+≥ 2 istanze
+
+Load balancer davanti
+
+Auto Scaling group (per sostituire istanze fallite automaticamente)
+
+Non servono ricordare numeri esatti:
+basta sapere che “1 istanza” non è alta disponibilità, “multi-AZ + più istanze” lo è.
+
+💡 Tip per l’esame
+
+Quando leggi una domanda tipo questa, usa questo mini-schema mentale:
+
+Concetto	Parola chiave
+Fault tolerance / High availability	Multi-AZ
+Disaster recovery	Multi-region
+Scalabilità automatica	Auto Scaling Group
+Load balancing	ELB / ALB
+Cost efficiency	Spot / On-Demand mix
+Performance	Scaling policies, instance types
+
+	👉 Deploy a copy of the stack in the us-west-2 Region. Create an additional A record in Route 53 that includes the ELB in us-west-2 as an alias target. Configure the A records with a failover routing policy and health checks. Use the ELB in us-east-1 as the primary record and the ELB in us-west-2 as the secondary record.
+	To achieve high availability across multiple AWS Regions, you need to deploy the entire application stack in each Region.
+	Route 53 failover routing allows DNS to route traffic to a primary resource (us-east-1 ELB) and automatically fail over to a secondary resource (us-west-2 ELB) if the primary becomes unhealthy.
+	Health checks ensure that traffic is only routed to healthy endpoints.
+	Using a single SOA record or trying to attach EC2 instances from another Region to the existing ELB does not work, as ELBs are regional and cannot span Regions.
+	VPC peering alone does not provide DNS-level failover or cross-Region high availability.
+
+Risposta corretta: The target group health check is configured with an incorrect port or path.
+L’Auto Scaling Group controlla solo lo stato ec2 (che valuta l’istanza come “in piedi”), mentre l’ALB effettua health check HTTP/HTTPS su path/porta. Se il check ALB è configurato su una porta o path errato, l’istanza risulta unhealthy solo per l’ALB.
+
+load balancing needed to separate public from private traffic, expose a single point of access (dns) spread load across multiple instances, high availability across zones,
+
+- ELB
+	LB managed by aws (guarantees high availability, updates, mantenaince,...)
+	integrated with aws offers/services
+	Health check to verify http port 4567 route /health
+		-> if the instance does not respond ok, traffic will not be forwarded to that instance
+		❌ “Update the ALB health check to send an SNS notification when an instance is unhealthy”
+		❌ L’ALB non invia notifiche SNS direttamente.
+		Devi usare CloudWatch Alarms sulle metriche pubblicate dall’ALB.
+	security group of load balancer allow users from anywhere http and https
+	security group of application should allow traffic only from LB
+
+ALB → metriche in CloudWatch
+Notification → CloudWatch Alarm → SNS
+**********MENTRE*********
+ASG activity → notifiche su lancio/terminazione / Unhealthy lato EC2!!!!! (un'istanza healty potrebbe comunque non rispondere correttamente all'healty check lato ELB!!)
+
+-ALB
+	liv 7 (http) balancer -> MICRO SERVICES
+	load balancing on multiple app (containers) ON THE SAME MACHINE
+	also support WEBSOCKET
+	YOU CAN ROUTE YOUR TRAFFIC DIFFERENT BASED ON THE PATH -> LISTENER
+	e.g. /users -> target group 1
+		/posts -> target group 2
+	or hostname in the url, or query strings or Headers
+
+	Target group: could be EC2 (managed by auto-scaling group), lambda, ec2 tasks, private IPs
+
+	it has fixed hostname XXX.region.elb.amazonaws.com
+	ip of the client is hidden for the ec2 in the header of the http request
+
+- NLB
+	liv 4: forward TCP and UDP traffic to instances
+	high performance: millions of requests per second
+	ONE STATIC IP PER AZ (SUPPORT ELASTIC IP) -> E.G. YOUR APP CAN ONLY BE ACCESSED BY ONLY 1OR 2 DIFFERENT IPs, CONSIDER NLB
+	-> target groups could be instances or private ips (on prem)
+	-> NLB can be also in front of an ALB (to expose just 1 fixed IP)
+	-> health checks support TCP, HTTP, HTTPS
+
+- Gateway Load Balancers
+	eg inspect traffic with 3rd party virtual appliances (firewall) before go into the NLB
+	SINGLE ENTRY/exit for all traffic
+	-> uses GENEVE protocol on port 6081
+
+STICKY SESSION (same client redirected to the same instance)
+for ALB and NLB
+-> the cookie has expiration date
+-> there exists Application cookie, duration-based cookie (both generated by the LB) and custom cookie (generated by the target)
+
+Utente → CloudFront → ALB → Target Group → EC2 (applicazione)
+
+Spiegazione
+
+    CloudFront è un Content Delivery Network (CDN) che fa da reverse proxy / cache layer davanti all’ALB.
+    CloudFront caches content for downloads, not uploads.
+    If you want CloudFront to cache different versions of your objects based on the device that a user is using to view your content, we recommend that you configure CloudFront to forward one or more of the following headers to your custom origin:
+
+	– CloudFront-Is-Desktop-Viewer
+	– CloudFront-Is-Mobile-Viewer
+	– CloudFront-Is-SmartTV-Viewer
+	– CloudFront-Is-Tablet-Viewer
+
+	- max age to increase TTL
+	nelle impostazioni di Cache Behavior della tua distribuzione (ad es. in Amazon CloudFront), devi configurare l’inoltro verso l’origine solo di quei parametri (query string, cookie, header, ecc.) che fanno davvero cambiare il contenuto generato dall’origine, cioè che producono oggetti unici.
+
+In pratica:
+
+    Se un parametro di query (es. ?lang=it) o un cookie (es. theme=dark) cambia la risposta dell’origine, allora va “forwarded” e incluso nella chiave di cache, così CloudFront conserverà versioni distinte per ciascun valore.
+    Se un parametro/cookie non cambia il contenuto (es. un parametro di tracking come utm_source), NON va inoltrato né incluso nella cache key, altrimenti:
+        riduci l’efficacia della cache (molte varianti inutili),
+        aumenti le miss e i costi.
+
+
+    L’ALB (Application Load Balancer) è configurato come origin di CloudFront.
+
+    Il Target Group dietro l’ALB contiene le istanze EC2 che eseguono l’applicazione web.
+
+Quindi il flusso è:
+
+    L’utente fa una richiesta a CloudFront.
+
+    CloudFront inoltra la richiesta all’ALB (che è il suo origin).
+
+    L’ALB inoltra la richiesta a una istanza EC2 del target group.
+
+    L’applicazione risponde → risposta torna all’utente via ALB → CloudFront → browser.
+
+Configure the CloudFront behavior to forward cookies
+Why: If CloudFront is not forwarding cookies, the ALB never receives the stickiness cookie on subsequent requests, so requests can be routed to different instances and users get logged out early.
+Make the ALB stickiness align with the application session (use the app cookie or increase the duration).
+Using the application cookie (or matching/longer duration) ensures the ALB won’t expire its session earlier than the app.
+
+CROSS ZONE LOAD BALANCING
+-> for ALB enabled by default (no charges, can be disabled at the target group level)
+-> NLB and gateway LB (disabled by default and charges)
+
+SSL/TSL certificates to encrypt traffic between LB and client (managed with ACM)
+Risposta corretta: Examine the expiration date on the certificate on the origin site. Validate that the certificate has not expired. Replace the certificate if necessary.
+Un certificato scaduto sull’origin causa errori TLS tra CloudFront e origin, risultando in 502.
+
+CONNECTION DRAINING/DEREGISTRATION DELAY
+time to complete the in-flight request while instance is de-registering or unhealthy
+
+Health checks: http 80
+
+ERRORS: >400 client >500 server
+
+load balancer metrics are pushed to cloudwatch metrics
+access logs are stored in s3
+
+Request routing algorithms:
+- least outstanding request
+- round robin (equally)
+- flow hash
+
+AUTO-SCALING GROUP
+follow the load of the traffic
+ASG is free
+-> set the minimum capacity and maximum
+it's possible to scale also in response to cloudwatch alarms
+we can set up scaling policies (e.g. avg CPU around 40%) and also predictive scaling policy
+-> can be defined by template
+-> SQS queue can collect alarms from cloudwatch and trigger scaling
+ApproximateNumberOfMessagesVisible / istanze InService”: questo rapporto riflette il backlog per worker, cioè quanti messaggi attendono per ogni istanza attiva. È il pattern standard per scalare consumer SQS
+-> can be multi AZ
+
+- Simple scaling policy – This triggers a scaling action when a threshold is breached but always adjusts capacity by a fixed amount, r
+- STEP SCALING POLICIES: For example, if CPU utilization is 50–60%, add 1 instance; 60–70%, add 2 instances; 70–80%, add 4 instances, etc
+- Target tracking scaling policy – This automatically adjusts capacity to keep a metric (like CPU utilization) at a target value
+
+--------------- Cloudformation ---------------
+to prevent deletion use Termination Protection
+StackSets allow to create stack in multiple aws account and regions
+custom resources can help to automate some non-native operation like delete non-empty buckets
+
+When a CloudFormation stack creation fails and reaches the ROLLBACK_COMPLETE state, the stack cannot be updated or retried directly because CloudFormation treats it as a terminal state.
+
+- CloudFormation nested stacks allow you to:
+Break common components into reusable, dedicated templates.
+Pass parameters and define conditions for each nested stack.
+Reduce duplication across multiple templates by referencing these reusable components.
+Different environments: parameters
+
+- CloudFormation change sets – Allow previewing changes before updating a stack, but do not modularize templates.
+- CloudFormation macros – Allow custom processing of templates (like transforming template code), not specifically for reusable common components.
+- CloudFormation stack sets – Deploy stacks across multiple accounts or regions, not for template reuse within a single account.
+
+CloudFormation wait conditions are used to pause stack creation until resources signal that they are successfully configured.
+The Auto Scaling group creation is failing because the wait condition is not receiving the required number of signals, meaning the EC2 instances are not signaling CloudFormation that they finished setup.
+cfn-signal is a CloudFormation helper script that signals a wait condition when the EC2 instance finishes its setup.
+
+A CreationPolicy on the EC2 instance resource lets CloudFormation wait for an explicit success signal (for example, from cfn-signal after OpsWorks/software install completes). If the signal isn’t received within the specified timeout (e.g., 4 hours to cover the 2–3 hour install plus buffer), CloudFormation marks the resource creation as failed, causing the entire stack to fail and roll back.
+
+    Conditions: do not provide timeouts or wait-for-signal behavior.
+    DependsOn: only enforces ordering, no timeout semantics.
+    Metadata: descriptive only; no effect on orchestration or failure handling.
+
+Set OnFailure=DO_NOTHING
+You can use the OnFailure property of the CloudFormation CreateStack call for this use-case. The OnFailure property determines what action will be taken if stack creation fails. This must be one of DO_NOTHING, ROLLBACK, or DELETE. You can specify either OnFailure or DisableRollback, but not both.
+Using the OnFailure property, you can prevent the termination of the EC2 instances created by the CloudFormation stack.
+
+
+--------------- Lambda ------------------------
+max size for /tmp is 10GB
+
+--------------- S3 ----------------------------
+there are cross-region replicas
+if you enable versioning, the existing files will have null
+replication doesn't support chaining (so I have to copy from A to B and then from A to C)
+
+-> WORM -> Object Lock provides two ways to manage object retention: retention periods and legal holds. An object version can have a retention period, a legal hold, or both.
+
+    Retention period – A retention period specifies a fixed period of time during which an object version remains locked. You can set a unique retention period for individual objects. Additionally, you can set a default retention period on an S3 bucket. You may also restrict the minimum and maximum allowable retention periods with the s3:object-lock-remaining-retention-days condition key in the bucket policy. This condition key helps you establish the allowable retention period. For more information, see Setting limits on retention periods with a bucket policy.
+
+    Legal hold – A legal hold provides the same protection as a retention period, but it has no expiration date. Instead, a legal hold remains in place until you explicitly remove it. Legal holds are independent from retention periods and are placed on individual object versions.
+Object Lock works only in buckets that have S3 Versioning enabled. When you lock an object version, Amazon S3 stores the lock information in the metadata for that object version.
+ IN ORDER TO DELETE OBJECT, YOU SHOULD HAVE IAM PERMISSION AND PUT BYPASSGOVERNANCERETENTION IN THE HEADER of the CLI request.
+-> MFA DELETE can be enabled only by the root user and by CLI
+
+Un presigned URL non “dà accesso” all’utente tramite le sue credenziali:
+➡️ È l’amministratore (cioè chi lo genera) che “firma” l’URL con le sue credenziali e permessi.
+In altre parole: il presigned URL eredita i permessi IAM di chi lo ha creato.
+Quindi, se l’admin che ha generato l’URL non ha permessi s3:PutObject,
+➡️ l’URL non potrà essere usato per fare upload, anche se è formalmente valido.
+Il presigned URL non richiede credenziali AWS da parte dell’utente finale.
+L’utente può usare curl, browser, o Postman.
+Tutta l’autenticazione è già nella firma del link.
+
+To ensure in-transit encryption, 
+    Write an S3 bucket policy to allow only encrypted connections over HTTPS by using the aws:SecureTransport condition.
+
+- S3 Transfer Accelerator (from and to)
+Enable S3 Transfer Acceleration 
+Uses Amazon CloudFront’s globally distributed edge locations to accelerate uploads.
+Uploads are sent to the nearest edge location, then routed over Amazon’s optimized network to the S3 bucket.
+Particularly effective for large objects uploaded from geographically distant clients.
+
+- Server access logging provides detailed records for the requests that are made to a bucket. Server access logs are useful for many applications. For example, access log information can be useful in security and access audits.
+
+- Pass the Content-MD5 value as a request header during the object upload.
+The Content-MD5 header allows the client to provide an MD5 checksum of the object being uploaded to Amazon S3.
+S3 uses this checksum to validate the integrity of the object during the upload. If the calculated MD5 on the server does not match the provided value, S3 rejects the upload and returns an error.
+This ensures that corrupted uploads are detected immediately, allowing the SysOps administrator or application to take corrective action.
+Other headers like Content-Disposition, x-amz-object-lock-mode, or x-amz-server-side-encryption-customer-algorithm are used for metadata, object locking, or encryption purposes and do not provide integrity verification
+
+--------------- Storage EBS and EFS -----------
+- Elastic Block Store (EBS) network drive you can attach to your instances while they run
+	bound to a specific AZ (needs snapshot to be moved away, snapshots are stored in S3)
+	Fast Snapshot Restore is very expensive
+	Fast snapshot restore (FSR) allows volumes to be restored fully-initialized and at maximum performance immediately
+	YOU CAN SPECIFY A RETENTION AFTER YOU DELETE A SNAP (E.G. 1 MONTH IN THE BIN)
+	you can move the snap in the archive with Lifecycle Manager (cheaper but slower to retrieve)
+	one instance at a time
+	uses network to communicate with the instance
+	delete on termination: e.g. disable it to preserve root volume
+
+	If you enable encryption, data, snapshots and volumes created from the snap are encrypted
+
+	gp2/gp3 general purpose SSD balance price and performance
+	io 1 io2 SSD Highest performance for critical low-latency workloads -> DATABASE WORKLOADS
+	iol and io2 support Multi-attach feature: can be attached to more than 1 instance in the same AZ
+    (these 2 can be used as boot volumes)
+
+	st 1 low cost HDD for frequently accessed -> Big data, datawarehouse, log processing
+	sc 1 (COLD HDD) lowest cost for rarely accessed
+
+	PERFORMANCE SCALES WITH SIZE OF THE VOLUME IN GP2, SO IF BURSTING FREQUENTLY, RESIZE THE VOLUME!
+
+-EC2 Instance Store: high performance (good to buffer/cache but lose memory when stopped)
+L’instance store offre performance I/O significativamente superiori rispetto a EBS standard (gp2), specialmente per operazioni di IOPS molto elevate come quelle richieste da workload di tipo batch/data processing. L’unica attenzione è che i dati sull’instance store non sono persistenti dopo lo stop/terminate dell’istanza, ma la domanda non richiede persistenza post-shutdown, solo integrità durante il processing.
+
+- Elastic File System (EFS): NFS MULTI-AZ can be mounted on many instances ($$)
+	BUT Mount targets are AZ-specific:
+		You must create one mount target per AZ in which your EC2 instances reside.	
+	elastic because automatically scales your throughput based on your workdloads
+	you have storage tiers (EFS lifecycle management feature) -> standard, infrequent, archive 
+	AND you have file-level granularity for retrieval, different from volume-level backups of EBS snapshots, in which you need to restore the entire volume.
+
+
+ They application requires high throughput and IOPS while accessing the file system. What should the SysOps administrator do to remediate the consistently high PercentIOLimit metric? -> Modify the existing EFS file system and activate Provisioned Throughput mode.
+
+ - EBS and EFS are FOR LINUX ONLY! FOR WINDOWS -> FSx, that is still HA and Provides fully managed Windows file shares (SMB) and Allows simultaneous access from multiple application servers.
+
+ File Gateway offers SMB or NFS-based access to data in Amazon S3 with local caching
+ Tape Gateway enables you to replace using physical tapes on-premises with virtual tapes in AWS without changing existing backup workflows.
+
+ You might need to shutdown or reboot your VM for maintenance, such as when applying a patch to your hypervisor. Before you shutdown the VM, you must first stop the gateway.
+
+   - For file gateway, you just shutdown your VM.
+
+   - For volume and tape gateways, stop the gateway, reboot the VM, then start the gateway.
+
+
+---------------- CloudFront ------------------
+Content Delivery Network (CDN)
+improves read performance -> cache at the edges, Origin Shield = additional layer of caching
+DDoS protection, integration with shield, AWS Web app firewall
+
+Le origin (dove stanno i file originali) che CF usa per portare i contenuti agli utenti sono:
+
+S3 Buckets:
+	- distribute files and caching them at the edges around the world
+	- secure origin access control
+WHEN YOU ENABLE CF ON S3 AS ORIGIN, YOU CAN CREATE CREATE POLICY THAT RESTRICT THE ACCESS TO THE CLOUDFRONT OAC ONLY TO UPDATE AND WRITE
+
+Enable Amazon S3 default encryption on the objects.
+Why it’s not sufficient:
+S3 default encryption ensures that objects are encrypted by default if the client does not specify encryption.
+However, it does not prevent a user from explicitly uploading objects without specifying server-side encryption, depending on the permissions.
+Security teams often require enforcement, not just defaults.
+Correct Approach: Enforce with a bucket policy
+The bucket policy provided denies any PutObject request that does not include server-side encryption:
+
+Configure CloudFront to mandate viewers to use HTTPS to request objects from S3. However, CloudFront and S3 will use HTTP to communicate with each other (https IN THIS CASE is not supported)
+
+vpn (ALB, NLB, EC2) -> content not exposed to the internet, they are in your vpc private subnets and they become accessible only through CF
+
+Custom (any public http backend)
+
+
+REQUEST -> CF -> check cache -> forward to origin -> cache the content
+
+CF vs S3 replicas:
+
+CF: uses global network, files cached for a TTL, great for static content that must be able everywhere
+S3 replicas: setup for each region, files updated in real time, read only, dynamic content that changes over time
+
+---> You can define the list of countries that can access to your cloudfront (GEO-localization 3rd part)
+
+---> Access logs go to s3 buckets (not origin bucket but Log Bucket)
+
+CACHING is based on:
+	1) headers:
+		you can forward all headers to the origin
+		you can allow a white list of headers
+		no cache based on headers (best cache performance)
+
+		we can define origin custom headers for each request to our origin and 
+		behavior setting: white list to forward to the origin and cache
+
+	2) session cookies (specific request headers)
+		default: not process the cookie
+		while list 
+		all of them (worst performance) but allow your application to use all of them
+
+	3) query string param (THEY ARE IN THE URL)
+		defualt: no process
+		whitelist
+		all -> a lot of parameters to process
+
+	To maximize cache hits: split static and dynamic requests:
+		- http/rest server -> cache based on cookies ecc...
+		- static content (S3) -> no cache rules
+	Monitor the CacheHitRate
+
+
+USE CASE: cookie for sticky session (AWSALB) whitelisted to forward from the CloudFront edge to the ALB, to force the traffic to the same EC2 instance
+
+
+---------------------- Databases ----------------------
+
+better to use RDS with respect to deploying DB on EC2 because
+	automated os patch
+	backups
+	read replicas to improve performances
+	multi AZ setup for DR
+	scaling (storage auto scaling, vertically and horizontally) -> top for unpredicatble app workloads
+---> it's a MANAGED SERVICE, BUT YOU CAN'T SSH TO YOUR INSTANCE
+
+How can you ensure all connections to RDS are encrypted?
+You can allow only SSL connections to your RDS for PostgreSQL database instance by enabling the rds.force_ssl parameter ("0" by default) through the parameter groups page on the RDS 
+
+READ REPLICAS FOR MULTI AZ USE CASES
+
+we can create up to 15 READ replicas within AZ, muLtii AZ, multi region
+replication is ASYNC
+
+1) e.g. Prod db -> report app to do analysis -> workload increase -> READ replica
+
+you pay the network cost only if the replica is in a AZ outside the region!
+
+
+2) Multi AZ for DR -> SYNC replication, 1 DNS name, NOT USED FOR SCALING
+
+-----> READ REPLICAS CAN BE SETUP AS MULTI AZ FOR DR
+
+RDS Multi-AZ with MySQL + S3 backup
+
+Multi-AZ provides automatic synchronous replication to a standby instance.
+
+Failover is automatic and fast (usually <1 minute).
+
+Minimal data loss.
+
+Operationally efficient: no manual intervention is needed. ✅
+
+RDS Single-AZ + read replica + S3 backup
+
+Single-AZ DB has no automatic failover if the primary fails.
+
+Read replicas are mainly for read scaling, not high availability. ❌
+
+3) HOW TO GO FROM SINGLE TO MULTI AZ?
+	no need top stop the DB, just click modify
+	internally, it will be created a snapshot, and then a new db is restored from the snap in a new AZ and then SYNC
+
+RDS proxy
+by default, a lambda is launched outside your VPC, so it cannot reach resources in your vpc such as rds, elasticsearch,...
+unless you make it public with a pub ip but this is not secure.
+
+if you define VPC ID, subnets and security groups, lambda will create an ENI inside your vpc
+but lambda should mantain the connection with the DB -> toomanyconnectionexception (la lambda è serverless, ogni volta è una connessione diversa!!)
+--> if you put a rds proxy in a public subnet inside your vpc, it will handle the connections by itself, the lambda connect to it and LAMBDA CAN STAY OUTSIDE
+
+DB parameters group -> e.g. to force SSL connection
+
+BACKUPS vs SNAPSHOTS
+
+backups are continuous and allow point in time recovery and if you delete the instance, you can retain them
+snap stop the db for minutes, they are incremental and MANUAL snap don't expire AND CAN BE SHARED if unencrypted (automated can't)
+
+- with point-in-time backups you don't have to manage/schedule backups. seconds granularity and up to 35 days.
+PITR only provides continuous backups within the same Region for restore to a past point in time. It does not replicate data to another Region nor provide a read/write replica.
+
+To achieve cross-Region replication for DR, you must use DynamoDB global tables. Global tables use DynamoDB Streams under the hood to replicate changes across Regions, giving you multi-Region, active-active replication
+
+IN ANY CASE, RESTORING FROM BACK/SNAP CREATE A NEW INSTANCE
+
+RDS with CloudWatch:
+	dbconnections
+	swap
+	read/writeOPS
+	latency
+	throughput
+	...
+
+while for changes in db instance state, RDS events
+
+Amazon Aurora
+	drivers for postgres and mysql will work
+	very cloud optimized and $$
+	automatically grows
+	high available cluster : 6 copies in 3 AZ
+	support cross region
+	we have a READER ENDPOINT (connection load balancing) to access the read replicas
+	automated backups
+
+spikes -> add aurora replicas to the cluster
+
+you can associate priority to each read replica (for failover)
+you can migrate mysql snap to an aurora cluster
+
+AuroraReplicaLagMaximum: This metric shows the maximum lag in seconds between the primary writer instance and any Aurora replica.
+-> il carrello di un app potrebbe non aggiornarsi correttamente
+
+Aurora Serverless provides automatic scaling based on actual database load, including the number of connections and query volume.
+
+CACHES: IN-MEMORY DBs
+
+ElastiCache: for redis (high avail., persistent) and memcached (no high avail., multithread)
+--> for read intensive workloads (heavy app code changes)
+
+1) of course we have a RDS behind if we have a chache miss
+2) another scenario is if we want a stateless app (memorize session data in elasticache)
+
+
+Elasticache replication
+	REDIS:
+	- Cluster mode disabled: asynch with 1 primary and up to 5 replicas
+	- enabled: data partioned into shards: best for scaling writes (each shard up to 5 replicas) multi AZ, scales autom.
+		for enabled we can do it online and offline (more config options)
+
+For ElastiCache for Memcached, there is no API that resizes an existing cluster’s node type.
+The API you actually use is:
+👉 CreateCacheCluster
+Why
+Memcached cannot be modified in place
+AWS does not provide a ModifyCacheCluster option for changing node types on Memcached
+
+------------- Monitoring, auditing and performance -------------
+
+- cloudwatch metrics for every service
+EC2 has every 5 minutes metrics (you can have every 1 minute but $$)
+
+custom metrics (e.g. ram): use API PutMetricData
+custom namespace
+then we have DASHBOARDS that are global (can include graphs from different accounts and regions)
+so you can put graphs of your metrics inside
+
+LOGS
+log groups represent an application
+stream: instance within an application
+
+they can be exported in S3 -> NOT IN REAL TIME
+SUBSCRIPTION -> REAL TIME to send them in data streams,kinesis, lambda, ...
+
+insights allow you to use a query language on the logs and you can export the result
+
+ALARMS: trigger notifications for every metric
+states:
+OK
+INSUFFICIENT_DATA
+ALARM
+
+TARGET -> EC2, EC2 AUTOSCALING, SNS (it is integrated)
+
+-> CloudWatch Anomaly Detection uses machine learning to model normal behavior based on historical metrics.
+
+- EventBridge
+scheduled scripts on lambda
+
+EXAMPLE:
+Source: S3 Events (upload)
+filter (optional, to pick just a part of the big json, you can use an input trasformer of cloudwatch, a specific log group with the rule) -> eventbridge rule that matches the filtered event.
+JSON -> Dest: Lambda
+
+we can attach to eventbridge a ResourceBased Policy to allow other accounts to put events in it
+
+compliance audit -> cloudtrail (event history of API calls)
+
+----------- AWS Account Management -----------
+
+- Health Dashboard
+	all regions all services health
+- Health Dashboard Your account
+	performance and availability of AWS services underlying your aws resources
+you can set alert, open an issue, scheduled activities,...
+
+EXAMPLE:
+	AWS health dashboard ->(trigger) EventBridge -> (invoke) Lambda, EC2, SNS,SQS,Kinesis Data stream...
+
+	event:exposed accesskeys -> invoke lambda -> delete access keys on IAM
+
+AWS Organizations: global service to manage more accounts
+main (management account) and members account -> SINGLE PAYMENT METHOD (volume discount for EC2, S3,...)
+Saving plans and other stuff are shared.
+
+you can apply Security Control Policies (SCP) to an OU (not to the management account that has full power)
+
+To allow read access from any principal within the organization while denying access from outside, the most efficient pattern is to use a bucket policy with Principal: "*", and constrain it with a condition aws:PrincipalOrgID (or PrincipalOrgId) equal to your AWS Organizations ID.
+Listing every account as principal is hard to maintain and error-prone. Using the management account as principal would not cover all member accounts. Setting PrincipalOrgId as the principal is not valid; it must be used as a condition key.
+This approach ensures all users in any member account can access the bucket (subject to their IAM permissions) while blocking access from outside the organization
+THAT MEANS ACCOUNT FROM ANY PRINCIPAL (*) THAT BELONG TO THE ORGANIZATION (condition)
+
+AWS Control Tower: on top of organizations, to set up a secure and compliant multi aws environment
+(e.g. deny some regions, ...)
+
+AWS Service Catalog
+quick self-service portal to launch a set of predefined authorized products by admins
+
+products = cloudformation templates -> portfolio (set of templates) -> IAM Permission to access (admin)
+product list (IAM authorized) -> launch -> ready to use, properly configured and tagged
+
+you can set up Biling Alarms (first of all allow them, and then create an alarm on cloudwatch)
+
+Cost Explorer 
+
+usage across all accounts
+monthly, hourly, resource-level granularity
+forecast up to 12 months based on previous period
+
+AWS Cost and Usage Reports (AWS CUR) contains the most comprehensive set of cost and usage data available. You can use Cost and Usage Reports to publish your AWS billing reports to an Amazon Simple Storage Service (Amazon S3) bucket that you own. You can receive reports that break down your costs by the hour, day, or month, by product or product resource, or by tags that you define yourself.
+
+AWS Budget -> you can create for example a monthly budget that notifies you or stop EC2 or attach a SCP or a IAM policy
+
+costAllocationTags: AWS: or user: to track in detailed mode
+
+AWS compute optimizer: use ML to recommend best config for your resources/usage to save costs
+if EC2 instance doesn't appear, wait at least 30h
+
+----------- Disaster Recovery ------------
+-DataSync: 
+	can synchronize to
+	S3
+	EFS
+	FSx
+
+
+1) use case: on prem -> AWS
+using NFS: you need AWS datasync agent
+AWS Snowcone serve per l'edge computing e il trasferimento dati in luoghi remoti, difficili o con connettività limitata, per raccogliere, elaborare e spostare dati verso AWS. È un dispositivo compatto, portatile, robusto e sicuro, pensato per ambienti che non sono data center, come barche, veicoli o siti industriali.
+
+Snowball Edge Storage Optimized is the optimal choice if you need to securely and quickly transfer dozens of terabytes to petabytes of data to AWS
+
+2) AWS -> AWS
+can be scheduled
+permissions and metadata preserved
+
+-AWS Backup
+create a backup plan (frequency, retention policy, transition to cold storage, ...) -> assign aws resources -> backed up to S3
+Vault Lock: backup cannot be deleted
+
+--------------- Security and Comppliance ---------------
+web application firewall (WAF) liv.7 shield
+can be deploy on: (same region)
+	ALB
+	API Gateway
+	Cloudfront
+	...
+rules for IPs (up to 10,000)
+http body,headers,URI strings -> protect from common attack
+SQL injection,...
+
+WAF doesn't support NLB, so you can use global accelerator to have a fixed IP
+
+users -> GlobalACC (fixed IP) -> (same region) ALB with WAF  -> EC2 instances
+
+AWS Shield -> PROTECT FROM DDOS attacks (liv3/4)
+
+AWS Firewall manager
+manage rules in all accounts in an organization
+security policies (WAF, shield, security groups, ENI,...)
+at REGION level
+
+
+LOGS STORED IN S3 CAN BE ANALYZED BY ATHENA (move logs to glacier for cost saving)
+
+GuardDuty: analyze all the logs (NO CLOUDWATCH) and can protect against CriptoCurrency attacks (it uses ML to prevent 3rd party data)
+Macie: machine learning patterns to discover and protect sensitive data
+Correct. CloudWatch Logs data protection policies help identify and protect sensitive data within CloudWatch Logs. Sensitive data includes personally identifiable information (PII) or PHI. CloudWatch Logs data protection policies automatically detect sensitive data patterns. CloudWatch Logs data protection policies can invoke alerts or initiate actions when sensitive data is logged.
+Learn more about CloudWatch Logs data protection policies.
+Incorrect. Macie is a data security service that discovers sensitive data that is stored in Amazon S3. Macie does not directly monitor CloudWatch Logs for sensitive data. Instead, Macie scans data that is stored in Amazon S3 for sensitive information. You cannot use Macie to monitor PHI in CloudWatch Logs.
+
+
+Inspector: vulnerabilities on workloads (ec2) or repositories
+AWS Trusted Advisor includes a Security check called “Security Groups – Specific Ports Unrestricted”, which identifies security groups that allow unrestricted access, but also you can see service limits such as ASG does not launch instances in busy periods
+AWS Security Hub conformance packs – Provide compliance checks and reporting, but do not enforce restrictions.
+(It is a collection from different services such as trusted advisor)
+
+***exam tips***
+Amazon GuardDuty – Detects threats and suspicious activity, not open ports or misconfigurations in security groups.
+Service Control Policy (SCP) – Used to enforce or restrict permissions across accounts in AWS Organizations, not for detecting open ports.
+AWS IAM Access Analyzer – Identifies resource sharing with external entities, not network-level exposure like open ports.
+***************
+
+AWS KMS -> Encryption
+- aws manages keys for us
+- integrated with IAM authorization
+- KSM usage is audit with cloudtrail
+- can be used also in API calls
+
+AWS-managed keys rotate very 1 year
+
+Customer Master Key:
+
+    Customer Master Key (CMK) is a logical representation of key can be generated by KMS
+    CMK never leaves KMS (or) a region.
+
+CMK AWS-managed → KMS genera un key material interno, mai visibile.
+CMK con imported key material → tu generi una chiave sul tuo hardware o sistema esterno, la importi in KMS, e la usi per crittografare i dati.
+
+1️⃣ CMK con AWS-managed key material
+
+Puoi abilitare rotazione automatica (Enable automatic key rotation)
+
+AWS gestisce la generazione di nuova key material ogni 1 anno.
+
+✅ Per queste chiavi, la rotazione automatica è semplice.
+
+2️⃣ CMK con imported key material
+
+Rotazione automatica non è supportata.
+
+Non puoi impostare un intervallo di 6 mesi o qualsiasi rotazione automatica.
+
+Devi creare un nuovo CMK, importare nuovo key material, e aggiornare l’alias.
+
+copying snapshots across regions:
+
+EBS (region1) -> snap (S3) encrypted key A -> copy snap in another region encrypted key B -> EBS (region2)
+
+!!!!!!!!!!!!!!!!!!
+AWS managed keys (SSE-KMS) cannot be modified to allow cross-account use.
+You cannot add external IAM roles to an AWS managed key policy.
+Only customer-managed KMS keys can grant cross-account access.
+--> SO YOU SHOULD CREATE A KEY AND ADD THE EXTERNAL ROLE TO YOUR KEY POLICY, AND THEN SHARE THE ARN OF YOUR KEY.
+
+AWS Secret Manager: automatic rotation of secrets (there is a lambda provided to update the password in your RDS db for example), KSM mandatory AND INTEGRATION WITH CLOUDFORMATION
+RotationSchedule -> built in 90 days or custom
+
+The other options are less secure because they either:
+require manual password creation,
+store secrets as CloudFormation parameters (not ideal for sensitive data),
+or rely on SSM Parameter Store without automated rotation.
+but SSM Parameter Store is cheaper but you need to configure eventbridge to call a lambda and update both parameter store and password (no rotation by default)
+
+You cannot enable MFA on IAM roles — only IAM users can have an MFA device.
+TO ENFORCE API CALLS TO USE MFA aws sts get-session-token --serial-number <mfa-device> --token-code <mfa-code>
+
+
+----------- networking Route 53 ------------
+
+authoritative = customer can update records
+HIGH AVAILABLE AND SCALABLE
+
+you cannot create a CNAME for a zone (e.g. example.com)
+In Route 53, an alias record is preferred over a CNAME for AWS load balancers for several reasons:
+    Apex/zone root support:
+        CNAME cannot be used at the zone apex (e.g., example.com) per DNS standards.
+        Alias A/AAAA can be used at the apex and still point to AWS resources like an ALB.
+
+A SysOps administrator is evaluating Amazon Route 53 DNS options to address concerns about high availability for an on-premises website. The website consists of two servers: a primary active server and a secondary passive server. Route 53 should route traffic to the primary server if the associated health check returns 2xx or 3xx HTTP codes. All other traffic should be directed to the secondary passive server. The failover record type, set ID, and routing policy have been set appropriately for both primary and secondary servers. Which next step should be taken to configure Route 53?
+Answer: Create an A record for each server. Associate the records with the Route 53 HTTP health check.
+
+    You need HTTP health checks to verify 2xx/3xx responses.
+    For on‑premises endpoints, use standard A records (not alias) because alias targets require AWS resources and “Evaluate Target Health” applies to alias targets only.
+
+
+A SysOps administrator needs to deploy an application in multiple AWS Regions. The SysOps administrator must implement a solution that routes users to the Region with the lowest latency. In case of failure, the solution must automatically route requests to a Region with a healthy instance of the application. The company needs a solution with the shortest time to failover. Which solution will meet these requirements?
+
+Create an AWS Global Accelerator standard accelerator. Create an endpoint group for each Region. Add a listener to the accelerator. Associate the endpoint group with the listener.
+
+------------ VPC -------------
+A network access control list (ACL) allows or denies specific inbound or outbound traffic at the subnet level.
+
+✅ VPC Flow Logs
+I VPC Flow Logs registrano tutto il traffico verso e dal network interface dell’istanza.
+Puoi vedere se i pacchetti arrivano e vengono accettati o rifiutati, o se non arrivano proprio.
+NON POSSO MODIFICARE IL FILTER, DEVO RICREARE FLOW LOGS CON ALL (E.G. SE NON VEDO IL REJECTED)
+Perfetto per diagnosticare problemi come:
+Security group che blocca traffico
+NACL che blocca traffico
+Routing errato
+
+💡 Sintesi esame-friendly:
+
+Problema: Timeout connessione RDP → sospetto rete/VPC.
+Strumento giusto: VPC Flow Logs sull’ENI dell’istanza.
+Perché non CloudWatch Logs: non tracciano pacchetti a livello rete.
+Perché non Instance Connect: funziona solo su Linux SSH.
+
+CloudWatch logs for the Site-to-Site VPN connection -> NON MOSTRA PACCHETTI, MA METRICHE TUNNEL E STATO DELLA CONNESSIONE
+
+-> You cannot modify the IPv4 CIDR of a VPC (e.g. conflicting addresses with an on-prem client vpc -> create a new vpc or add a new cidr block)
+
+-> Internet Gateway and Route Table allow traffic on internet (it's HA and scales)
+An egress-only Internet gateway is a horizontally scaled, redundant, and highly available VPC component that allows outbound communication over IPv6 from instances in your VPC to the Internet, and prevents the Internet from initiating an IPv6 connection with your instances.
+
+-> Instances could be in public or private subnets. if they are in private subnet, you neet a NAT instance to connect to the internet. NAT instance must be in public subnet, with an elastic IP attached (ENI) and you should disable in ec2 SOURCE DESTINATION CHECK. Route table: traffic for internet directed to NAT
+-> NOT HA BY DEFAULT, YOU NEED TO CONFIGURE SECURITY GROUPS AND OUTDATED
+
+******* NAT Gateway **************
+----> USE NAT GATEWAY!! IT IS SPECIFIC FOR AN AZ AND REQUIRES IGW and a ENI
+Private subnet -> NAT GATEWAY (in public subnet) -> IGW
+
+best practice: at least a public and a private subnet (each with his own nat) for each AZ (at least 2)
+
+- You can enable DNS resolution in the VPC with Route 53 (there is a specific IP that would be queried) -> enableDnsSupport
+THIS IS FOR PUBLIC ADDRESSES
+
+enableDnsHostnames -> assign public hostnames if instances in the VPC have public IP
+if you use custom DNS domain names in a Private Hosted Zone (mycompany.private A 10.0.0.1) in Route53, both the attributes should be true
+QUESTO TAG abilita l’uso di hostname privati (cioè risoluzioni DNS interne) all’interno della VPC.
+→ Senza questa opzione, anche se hai una Private Hosted Zone in Route 53, la VPC non associa correttamente i nomi DNS ai tuoi host interni.
+
+NACL
+security group is stateful: if enable the inbound, outbound (answer to that request) is automatically allowed.
+NACL are stateless: you should have simmetric rules if you want the traffic passes
+
+YOU DEFINE NACL RULES WITH NUMBER, LOWER NUMBERS HAVE PRECEDENCE
+-> allow the traffic on the range of the ephemeral port in the 2 NACL(inbound for the client in the public subnet outbound for the server in the private subnet)
+When the web server responds to incoming HTTP/HTTPS requests, the return traffic uses ephemeral ports on the outbound path.
+Network ACLs are stateless, so both inbound and outbound rules must explicitly allow traffic.
+-> Security groups are allow-only; they cannot have explicit deny rules.
+-> REJECTED = NACL deny rule. 
+-> No internet gateway -> no log entries in VPC FLOW LOGS
+-> NACL by default allow EVERYTHING
+
+DIRECT CONNECT (DX)
+
+dedicated PRIVATE connection from a remote network to your VPC -> at the exam when they mention "traffic should not pass into the internet" -> DX
+you need to setup a virtual private gateway on your VPC with a PRIVATE VIRTUAL INTERFACE for each VPC you want to connect
+access public (S3) and private resources (EC2) on same connection
+you need public interface in your gateway to connect to S3
+-> increases bandwidth
+-> no encryption (you need a VPN)
+-> high resiliency for critical workloads: a connection for each location
+-> maximum resiliency: 2 connection for each location terminating to a different device
+
+Direct Connect Gateway allows you to connect multiple VPCs across different regions to your on-premises network through a single connection
+
+Site2Site VPN:
+- enable RoutePropagation for the VPG in the route tables of your subnets
+- if you have to ping from on-prem instances: allow ICMP protocol inbound security group
+
+VPC Managed Prefix List: if customer-managed it's a CIDR block that you can share
+VPC Reachability analizer: you can see if 2 configurations can communicate without sending packets
+
+VPC Peering: connect 2 vpc using aws network (NO OVERLAPPING PRIVATE CIDR AND NO TRANSITIVE AND YOU SHOULD UPDATE EACH ROUTING TABLE) -> IF YOU NEED TRANSITIVE USE TRANSIT GATEWAY
+it works also for different accounts and regions
+
+VPC Endpoints: to access resources such as s3 and cloudwatch without passing through the internet
+2 types:
+	- interface endpoints ENI private ip attached to your service (must attach a security group) -> better if VPN
+	- gateway endpoints: supports s3 and dynamodb, it's free and does not use SG -> PREFERRED
+Other endpoint services: AWS Private Link: we need a NLB in our VPC and a ENI in customer VPC
+
+VPC Flow Logs: 
+	- inbound REJECT -> NACL or SG
+	- inbound ACCEPT outbound REJECT -> NACL
+	- outbound REJECT -> NACL or SG
+	- outbound ACCEPT inbound REJECT -> NACL
+
+VPC Traffic Mirroring: capure traffic from a source to a target in your VPC
+
+AWS Network Firewall: any direction traffic from liv 3 to 7 for all the VPC
+
+A /27 subnet is too small
+A /27 provides:
+32 total IP addresses
+5 reserved by AWS
+(network, broadcast, and AWS-reserved addresses)
+27 usable IPs for EC2 instances
+
+
+---------- OTHER SERVICES -----------
+Decouple app -> SQS you have access policies 
+👉 Create a new SQS FIFO queue. Turn on content-based deduplication on the new FIFO queue. Update the application to include a message group ID in the messages.
+SQS FIFO queues cannot be converted from standard queues; a new FIFO queue must be created.
+FIFO queues require a Message Group ID to ensure ordering within the group. The application must include this ID when sending messages.
+Content-based deduplication can be enabled so that messages with identical content are treated as duplicates within a 5-minute deduplication interval.
+DelaySeconds is optional and unrelated to FIFO queue migration.
+Standard queues do not guarantee ordering or exactly-once processing, so migrating requires these specific FIFO configurations.
+SNS -> each subscriber receive all the messages but you can filter. You can do cross region notifications
+ECS (Fargate mode) + EFS = Serverless and multi AZ and easier to set up the autoscaling
+ECS provides also EC2 mode
+
+In an AWS ECS task definition, the
+networkMode parameter can be set to bridge, host, or awsvpc, each with different networking characteristics. awsvpc mode gives each task its own ENI and IP address, acting like an EC2 instance, while bridge mode uses a Docker-managed virtual bridge, and host mode bypasses the Docker network stack to use the host's network directly. The choice of mode depends on your needs for security, performance, and network configuration complexity, with awsvpc being required for Fargate tasks
+
+
+ALB do not send data to x-ray
+
+AWS Elastic Beanstalk
+- With rolling deployments, Elastic Beanstalk splits the environment's Amazon EC2 instances into batches and deploys the new version of the application to one batch at a time. It leaves the rest of the instances in the environment running the old version of the application. During a rolling deployment, some instances serve requests with the old version of the application, while instances in completed batches serve other requests with the new version. For details, see How rolling deployments work.
+ To maintain full capacity during deployments, you can configure your environment to launch a new batch of instances before taking any instances out of service. This option is known as a rolling deployment with an additional batch. When the deployment completes, Elastic Beanstalk terminates the additional batch of instances.
+- Immutable deployments perform an immutable update to launch a full set of new instances running the new version of the application in a separate Amazon EC2 Auto Scaling group, alongside the instances running the old version. Immutable deployments can prevent issues caused by partially completed rolling deployments. If the new instances don't pass health checks, Elastic Beanstalk terminates them, leaving the original instances untouched.
+-To automate the replacement of unhealthy EC2 instances, you must change the health check type of your instance's Auto Scaling group from EC2 to ELB by using a configuration file of your Beanstalk environment
+
+
+RIVEDERE TUTTE LE CONFIG RULE
+
+e.g.
+Implement an AWS Config rule to identify if security groups permit SSH from 0.0.0.0/0.
+Correct selection ANDt
+Create an AWS Systems Manager Automation document to update the identified security group rules.
+
+
+A company hosts the domain example.com in Amazon Route 53. The company sends emails by using Amazon Simple Email Service (Amazon SES). Some recipients are not receiving the emails. A CloudOps engineer investigates the issue and identifies that some recipient servers are rejecting the emails.
+Which configuration in Route 53 will resolve the email delivery issue?
+Correct. You can add a TXT record with Sender Policy Framework (SPF) information. This solution helps receiving mail servers verify that the sending IP address is authorized to send email on behalf of the domain. The SPF record specifies which IP addresses are allowed to send email for the domain. To prevent spoofing and to improve email deliverability, you should add an SPF record as a TXT record.
+

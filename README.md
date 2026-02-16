@@ -26,10 +26,8 @@
   - DR, backup & cost: AWS Backup, DataSync, Snow family, Cost Explorer, Budgets, and practical exam tips for high availability, DR and cost optimisation.
 
 **Badge:** [SOA-C03 Credential — View on Credly](https://www.credly.com/badges/d5d3f2ca-399b-43ec-bdf5-029a8ea2466d/public_url)  
-![SOA-C03 Badge](https://www.credly.com/badges/d5d3f2ca-399b-43ec-bdf5-029a8ea2466d/public_url)
 
-**Badge:** [MLA-C01 Credential — View on Credly](https://www.credly.com/badges/4f58abc5-8efa-440d-8a71-e631d5851c83/public_url)  
-![MLA-C01 Badge](https://www.credly.com/badges/4f58abc5-8efa-440d-8a71-e631d5851c83/public_url)
+**Badge:** [MLA-C01 Credential — View on Credly](https://www.credly.com/badges/4f58abc5-8efa-440d-8a71-e631d5851c83/public_url)
 ---
 
 ## ⚙️ How to use
